@@ -309,7 +309,7 @@ function showToast(msg, autohide = true) {
 async function geocode(address) {
     try {
         const r = await fetch(
-            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=in`,
             { headers: { 'Accept-Language': 'en' } }
         );
         const d = await r.json();

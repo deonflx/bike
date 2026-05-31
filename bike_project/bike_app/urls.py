@@ -13,6 +13,7 @@ urlpatterns = [
 
     # Customer detail
     path('customers/<int:pk>/', views.customer_detail, name='customer_detail'),
+    path('customers/<int:pk>/summary/', views.generate_customer_summary, name='customer_summary'),
     path('customers/<int:pk>/route/', views.view_route, name='view_route'),
     path('customers/<int:pk>/delete/', views.delete_trip, name='delete_trip'),
 

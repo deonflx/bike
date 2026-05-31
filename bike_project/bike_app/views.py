@@ -20,12 +20,35 @@ def bike_form(request):
 @require_http_methods(["POST"])
 def bike_submit(request):
     """Handle bike form submission"""
+    bikename = request.POST.get('bikename')
+    starting_location = request.POST.get('starting_location', '')
+    destination_location = request.POST.get('destination_location')
+    
+    # Auto-fetch specs using Gemini
+    try:
+        from google import genai
+        from dotenv import load_dotenv
+        import json
+        import os
+        load_dotenv()
+        client = genai.Client()
+        prompt = f"Return the average fuel tank capacity (liters) and average mileage (km/l) for the motorcycle model '{bikename}'. Return strictly a JSON object with keys 'capacity' and 'mileage'. Example: {{\"capacity\": 15, \"mileage\": 35}}"
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+        raw_text = response.text.replace('```json', '').replace('```', '').strip()
+        specs = json.loads(raw_text)
+        capacity = float(specs.get('capacity', 15))
+        mileage = float(specs.get('mileage', 35))
+    except Exception as e:
+        print("Gemini auto-detect failed:", e)
+        capacity = 15.0
+        mileage = 35.0
+
     BikeTrip.objects.create(
-        bikename=request.POST.get('bikename'),
-        fueltank_capacity=float(request.POST.get('fueltank_capacity')),
-        average_mileage=float(request.POST.get('average_mileage')),
-        starting_location=request.POST.get('starting_location', ''),
-        destination_location=request.POST.get('destination_location'),
+        bikename=bikename,
+        fueltank_capacity=capacity,
+        average_mileage=mileage,
+        starting_location=starting_location,
+        destination_location=destination_location,
     )
     return redirect('customer_list')
 
@@ -212,3 +235,42 @@ Please provide a highly detailed but well-formatted advisory covering exactly th
         traceback.print_exc()
         return JsonResponse({'error': str(e)}, status=500)
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def generate_customer_summary(request, pk):
+    """Generate AI summary for the customer detail page"""
+    trip = get_object_or_404(BikeTrip, pk=pk)
+    
+    try:
+        from google import genai
+        import markdown
+        from dotenv import load_dotenv
+        
+        load_dotenv()
+        client = genai.Client()
+        
+        prompt = f"""
+You are an intelligent trip analyzer.
+The user is traveling on a {trip.bikename} from {trip.starting_location} to {trip.destination_location}.
+The bike's fuel capacity is {trip.fueltank_capacity}L and its average mileage is {trip.average_mileage} km/l.
+
+Calculate the details and provide a highly concise, visually clean HTML breakdown (using simple HTML tags like <b>, <br>, no markdown wrappers).
+Format EXACTLY as follows with these exact bold headings:
+
+<b>⛽ Fuel Efficiency & Cost:</b> Approx {trip.average_mileage} km/l. Fuel consumed: [calculate liters consumed including a 10% detour buffer]. Total cost: approx ₹[calculate cost assuming ₹100/L]<br><br>
+<b>🌤️ Route Weather:</b> [give a brief expected weather summary for a trip between these locations]<br><br>
+<b>⏱️ Total Time:</b> [estimate total driving time] plus [estimate break time], total: [calculate total time including periodic breaks based on the estimated distance].
+"""
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        
+        html_response = response.text.replace('```html', '').replace('```', '').strip()
+        
+        return JsonResponse({'status': 'ok', 'html': html_response})
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=500)

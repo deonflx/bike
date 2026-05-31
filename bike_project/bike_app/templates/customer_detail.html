@@ -190,6 +190,21 @@
             .hero-title { font-size: 1.5rem; }
             .route-connector { width: 40px; }
         }
+
+        /* AI Summary Card */
+        .ai-summary-card {
+            background: linear-gradient(135deg, #150f1f, #1a152e);
+            border: 1px solid rgba(168,85,247,0.3);
+            border-radius: 20px; padding: 24px;
+            margin-bottom: 24px;
+        }
+        .ai-summary-card h2 { color: #a855f7; font-size: 1.2rem; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .ai-content { font-size: 0.95rem; line-height: 1.6; color: #e2e8f0; }
+        .ai-loader { display: flex; align-items: center; gap: 12px; color: #94a3b8; font-size: 0.9rem; }
+        .spinner { width: 20px; height: 20px; border: 2px solid rgba(168,85,247,0.3); border-top-color: #a855f7; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .ai-content b { color: #fff; }
     </style>
 </head>
 <body>
@@ -303,6 +318,17 @@ document.getElementById('deleteModal').addEventListener('click', function(e) {
         </div>
     </div>
 
+    <!-- AI Route Summary -->
+    <div class="ai-summary-card">
+        <h2>✨ AI Trip Summary</h2>
+        <div class="ai-content" id="ai-summary-content">
+            <div class="ai-loader">
+                <div class="spinner"></div>
+                Analyzing route, weather, and bike specifications...
+            </div>
+        </div>
+    </div>
+
     <!-- Specs -->
     <div class="specs-grid">
         <div class="spec-card">
@@ -359,6 +385,26 @@ document.getElementById('deleteModal').addEventListener('click', function(e) {
     </div>
 
 </main>
+
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const response = await fetch(`/customers/{{ trip.pk }}/summary/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+        });
+        const data = await response.json();
+        const contentDiv = document.getElementById('ai-summary-content');
+        if (data.error) {
+            contentDiv.innerHTML = `<span style="color:#ef4444;">Error: ${data.error}</span>`;
+        } else {
+            contentDiv.innerHTML = data.html;
+        }
+    } catch(err) {
+        document.getElementById('ai-summary-content').innerHTML = `<span style="color:#ef4444;">Failed to load summary.</span>`;
+    }
+});
+</script>
 
 </body>
 </html>

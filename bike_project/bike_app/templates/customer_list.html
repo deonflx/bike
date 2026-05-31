@@ -386,21 +386,6 @@
                     <input type="text" id="bikename" name="bikename"
                            placeholder="e.g. Royal Enfield Himalayan" required>
                 </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="fueltank_capacity">Fuel Tank (Liters)</label>
-                        <input type="number" id="fueltank_capacity" name="fueltank_capacity"
-                               placeholder="e.g. 15.0" step="0.1" min="0.1" required>
-                        <div class="input-hint">Total tank capacity in litres</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="average_mileage">Mileage (km/L)</label>
-                        <input type="number" id="average_mileage" name="average_mileage"
-                               placeholder="e.g. 35.5" step="0.1" min="0.1" required>
-                        <div class="input-hint">Average kilometres per litre</div>
-                    </div>
-                </div>
             </div>
 
             <!-- Route Info -->
@@ -417,18 +402,6 @@
                     <label for="destination_location">Destination</label>
                     <textarea id="destination_location" name="destination_location"
                               placeholder="e.g. Pune, Maharashtra" required></textarea>
-                </div>
-            </div>
-
-            <!-- Range Preview -->
-            <div class="form-section">
-                <div class="form-section-title">Estimated Range</div>
-                <div class="stat" style="background: rgba(16,185,129,0.07); border-color: rgba(16,185,129,0.2);">
-                    <div class="stat-ico ico-green">📏</div>
-                    <div>
-                        <div class="stat-val" id="rangePreview" style="color:#34d399;">—</div>
-                        <div class="stat-lbl">km on a full tank</div>
-                    </div>
                 </div>
             </div>
 
@@ -458,16 +431,6 @@
     }
     // Close on Escape
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
-
-    // ── Live range calculator ──
-    function calcRange() {
-        const tank    = parseFloat(document.getElementById('fueltank_capacity').value) || 0;
-        const mileage = parseFloat(document.getElementById('average_mileage').value)   || 0;
-        const range   = tank * mileage;
-        document.getElementById('rangePreview').textContent = range > 0 ? range.toFixed(0) : '—';
-    }
-    document.getElementById('fueltank_capacity').addEventListener('input', calcRange);
-    document.getElementById('average_mileage').addEventListener('input', calcRange);
 
     // ── Table search ──
     function filterTable() {
