@@ -330,10 +330,10 @@
                         </span>
                         {% endif %}
                     </td>
-                    <td><span class="loc-text" title="{{ trip.starting_location }}">{{ trip.starting_location }}</span></td>
-                    <td><span class="loc-text" title="{{ trip.destination_location }}">{{ trip.destination_location }}</span></td>
-                    <td><span class="pill pill-blue">⛽ {{ trip.fueltank_capacity }}L</span></td>
-                    <td><span class="pill pill-green">🛣️ {{ trip.average_mileage }}</span></td>
+                    <td><span class="loc-text" title="{{ trip.starting_name }}">{{ trip.starting_name }}</span></td>
+                    <td><span class="loc-text" title="{{ trip.destination_name }}">{{ trip.destination_name }}</span></td>
+                    <td><span class="pill pill-blue">⛽ {{ trip.redis_capacity }}L</span></td>
+                    <td><span class="pill pill-green">🛣️ {{ trip.redis_mileage }}</span></td>
                     <td>{{ trip.created_at|date:"d M Y" }}</td>
                     <td>
                         {% if trip.active_session %}

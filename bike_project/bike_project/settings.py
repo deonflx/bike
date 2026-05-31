@@ -102,6 +102,9 @@ DATABASES = {
     }
 }
 
+# Redis (bike specs cache)
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

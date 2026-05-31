@@ -334,14 +334,14 @@ document.getElementById('deleteModal').addEventListener('click', function(e) {
         <div class="spec-card">
             <div class="spec-icon blue">⛽</div>
             <div>
-                <div class="spec-value">{{ trip.fueltank_capacity }} L</div>
+                <div class="spec-value">{{ bike_specs.capacity|default:"—" }} L</div>
                 <div class="spec-label">Fuel Tank Capacity</div>
             </div>
         </div>
         <div class="spec-card">
             <div class="spec-icon green">🛣️</div>
             <div>
-                <div class="spec-value">{{ trip.average_mileage }} km/L</div>
+                <div class="spec-value">{{ bike_specs.mileage|default:"—" }} km/L</div>
                 <div class="spec-label">Average Mileage</div>
             </div>
         </div>
