@@ -192,8 +192,19 @@
     </div>
 </div>
 
-<!-- MAP -->
-<div id="map"></div>
+<!-- MAP — all server-side values stored as data attributes to keep JS clean -->
+<div id="map"
+    data-trip-pk="{% if view_only %}{{ trip.pk }}{% else %}{{ session.bike_trip.pk }}{% endif %}"
+    data-view-only="{% if view_only %}true{% else %}false{% endif %}"
+    data-session-pk="{% if view_only %}{% else %}{{ session.pk }}{% endif %}"
+    data-is-active="{% if view_only %}false{% else %}{{ session.is_active|yesno:'true,false' }}{% endif %}"
+    data-from="{% if view_only %}{{ trip.starting_location|escapejs }}{% else %}{{ session.bike_trip.starting_location|escapejs }}{% endif %}"
+    data-to="{% if view_only %}{{ trip.destination_location|escapejs }}{% else %}{{ session.bike_trip.destination_location|escapejs }}{% endif %}"
+    data-saved-lat="{% if view_only %}{% else %}{{ session.current_lat|default:'' }}{% endif %}"
+    data-saved-lng="{% if view_only %}{% else %}{{ session.current_lng|default:'' }}{% endif %}"
+    data-update-url="{% if view_only %}{% else %}{% url 'update_location' session.pk %}{% endif %}"
+    data-csrf="{{ csrf_token }}"
+></div>
 
 <!-- AI MODAL -->
 <div id="ai-modal">
@@ -242,29 +253,18 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-// ── Config ──────────────────────────────────────────────────────────────────
-const VIEW_ONLY     = {% if view_only %}true{% else %}false{% endif %};
-{% if view_only %}
-const SESSION_PK    = null;
-const IS_ACTIVE     = false;
-const FROM_TEXT     = "{{ trip.starting_location|escapejs }}";
-const TO_TEXT       = "{{ trip.destination_location|escapejs }}";
-const SAVED_LAT     = null;
-const SAVED_LNG     = null;
-const UPDATE_URL    = "";
-const CSRF_TOKEN    = "";
-const BACK_PK       = {{ trip.pk }};
-{% else %}
-const SESSION_PK    = {{ session.pk }};
-const IS_ACTIVE     = {{ session.is_active|yesno:"true,false" }};
-const FROM_TEXT     = "{{ session.bike_trip.starting_location|escapejs }}";
-const TO_TEXT       = "{{ session.bike_trip.destination_location|escapejs }}";
-const SAVED_LAT     = {{ session.current_lat|default:"null" }};
-const SAVED_LNG     = {{ session.current_lng|default:"null" }};
-const UPDATE_URL    = "{% url 'update_location' session.pk %}";
-const CSRF_TOKEN    = "{{ csrf_token }}";
-const BACK_PK       = {{ session.bike_trip.pk }};
-{% endif %}
+// ── Config (read from data-* attributes — no Django tags in JS) ──────────────
+const _map_el      = document.getElementById('map');
+const VIEW_ONLY    = _map_el.dataset.viewOnly === 'true';
+const SESSION_PK   = _map_el.dataset.sessionPk   || null;
+const IS_ACTIVE    = _map_el.dataset.isActive === 'true';
+const FROM_TEXT    = _map_el.dataset.from   || '';
+const TO_TEXT      = _map_el.dataset.to     || '';
+const SAVED_LAT    = _map_el.dataset.savedLat  ? parseFloat(_map_el.dataset.savedLat)  : null;
+const SAVED_LNG    = _map_el.dataset.savedLng  ? parseFloat(_map_el.dataset.savedLng)  : null;
+const UPDATE_URL   = _map_el.dataset.updateUrl  || '';
+const CSRF_TOKEN   = _map_el.dataset.csrf        || '';
+const BACK_PK      = parseInt(_map_el.dataset.tripPk, 10);
 
 // ── Map init ─────────────────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([20.5937, 78.9629], 5);
@@ -495,7 +495,7 @@ async function askAI() {
     `;
     
     // Prepare data
-    const tripPk = {% if view_only %}{{ trip.pk }}{% else %}{{ session.bike_trip.pk }}{% endif %};
+    const tripPk = parseInt(document.getElementById('map').dataset.tripPk, 10);
     const payload = {
         distance: routeDistanceKm,
         duration: routeDurationMins,
