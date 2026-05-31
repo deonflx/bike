@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  postgis:
+    image: postgis/postgis:latest
+    container_name: postgis-db
+    environment:
+      POSTGRES_DB: gisdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 9f324689154c4a17b3b2151126d073e4
+    ports:
+      - "5433:5432"   # 5433 avoids conflict with local PostgreSQL on 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gisdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

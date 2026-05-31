@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bike Trip Manager | Customer Records</title>
+    <meta name="description" content="Manage and view all bike trip customer records with geospatial data.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg:        #0f0f1a;
+            --bg2:       #1a1a2e;
+            --bg3:       #1e1e35;
+            --border:    rgba(99,102,241,0.18);
+            --purple:    #6366f1;
+            --purple-l:  #818cf8;
+            --green:     #10b981;
+            --orange:    #f59e0b;
+            --text:      #e2e8f0;
+            --muted:     #94a3b8;
+            --dim:       #64748b;
+        }
+
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+        /* ── HEADER ── */
+        .header {
+            background: linear-gradient(135deg, var(--bg2), #16213e);
+            border-bottom: 1px solid var(--border);
+            padding: 0 40px; height: 68px;
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 100;
+            backdrop-filter: blur(12px);
+        }
+        .header-left { display: flex; align-items: center; gap: 14px; }
+        .logo {
+            width: 42px; height: 42px;
+            background: linear-gradient(135deg, var(--purple), #8b5cf6);
+            border-radius: 12px; display: flex; align-items: center;
+            justify-content: center; font-size: 20px;
+            box-shadow: 0 4px 16px rgba(99,102,241,0.4);
+        }
+        .header-title { font-size: 1.15rem; font-weight: 700; color: #fff; }
+        .header-sub   { font-size: 0.75rem; color: var(--muted); }
+
+        /* ── BUTTONS ── */
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 9px 18px; border-radius: 10px; font-size: 0.85rem;
+            font-weight: 600; cursor: pointer; border: none;
+            text-decoration: none; transition: all 0.2s; font-family: inherit;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--purple), #8b5cf6);
+            color: #fff; box-shadow: 0 4px 14px rgba(99,102,241,0.3);
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(99,102,241,0.45); }
+        .btn-ghost {
+            background: transparent; color: var(--muted);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .btn-ghost:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+
+        /* ── MAIN ── */
+        .main { padding: 36px 40px; max-width: 1200px; margin: 0 auto; }
+
+        /* ── STATS ── */
+        .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; margin-bottom: 32px; }
+        .stat {
+            background: var(--bg3); border: 1px solid var(--border);
+            border-radius: 16px; padding: 22px 24px;
+            display: flex; align-items: center; gap: 16px;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+        .stat:hover { border-color: rgba(99,102,241,0.4); transform: translateY(-2px); }
+        .stat-ico {
+            width: 46px; height: 46px; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;
+        }
+        .ico-purple { background: rgba(99,102,241,0.13); }
+        .ico-green  { background: rgba(16,185,129,0.13); }
+        .ico-orange { background: rgba(245,158,11,0.13); }
+        .stat-val { font-size: 1.9rem; font-weight: 800; color: #fff; line-height: 1; }
+        .stat-lbl { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+
+        /* ── TOOLBAR ── */
+        .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+        .search-box {
+            flex: 1; position: relative;
+        }
+        .search-box input {
+            width: 100%; padding: 11px 16px 11px 42px;
+            background: var(--bg3); border: 1px solid var(--border);
+            border-radius: 11px; color: var(--text); font-size: 0.875rem;
+            font-family: inherit; outline: none; transition: border-color 0.2s;
+        }
+        .search-box input:focus { border-color: var(--purple); }
+        .search-box input::placeholder { color: var(--dim); }
+        .search-ico { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--dim); font-size: 15px; }
+
+        /* ── TABLE ── */
+        .table-wrap {
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 16px; overflow: hidden;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: rgba(99,102,241,0.08); }
+        th {
+            padding: 14px 20px; text-align: left;
+            font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.09em; color: var(--dim);
+            border-bottom: 1px solid var(--border);
+        }
+        td {
+            padding: 15px 20px; font-size: 0.855rem;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            color: #cbd5e1;
+        }
+        tr:last-child td { border-bottom: none; }
+        tbody tr { cursor: pointer; transition: background 0.15s; }
+        tbody tr:hover td { background: rgba(99,102,241,0.07); }
+
+        .id-badge { font-weight: 700; color: var(--purple-l); font-size: 0.78rem; }
+        .bike-name { font-weight: 600; color: #fff; }
+        .loc-text  { color: var(--muted); font-size: 0.8rem; max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pill {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 600;
+        }
+        .pill-red    { background: rgba(239,68,68,0.13); color: #f87171; }
+        .live-dot { width: 6px; height: 6px; background: #ef4444; border-radius: 50%; display:inline-block; animation: blink 1.2s infinite; margin-right:4px; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+        .view-btn {
+            padding: 5px 13px; border-radius: 8px; font-size: 0.75rem; font-weight: 600;
+            background: rgba(99,102,241,0.12); color: var(--purple-l);
+            border: 1px solid rgba(99,102,241,0.25); text-decoration: none;
+            transition: all 0.18s; white-space: nowrap;
+        }
+        .view-btn:hover { background: var(--purple); color: #fff; }
+
+        /* ── EMPTY STATE ── */
+        .empty { text-align: center; padding: 70px 40px; }
+        .empty-ico { font-size: 52px; opacity: 0.4; margin-bottom: 16px; }
+        .empty h3  { font-size: 1.1rem; color: var(--muted); margin-bottom: 6px; }
+        .empty p   { font-size: 0.82rem; color: var(--dim); margin-bottom: 20px; }
+
+        /* ── DRAWER OVERLAY ── */
+        .overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+            backdrop-filter: blur(4px); z-index: 200;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s;
+        }
+        .overlay.open { opacity: 1; pointer-events: all; }
+
+        /* ── DRAWER PANEL ── */
+        .drawer {
+            position: fixed; top: 0; right: 0; height: 100vh; width: 480px;
+            background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+            border-left: 1px solid var(--border); z-index: 201;
+            transform: translateX(100%); transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+        .drawer.open { transform: translateX(0); }
+
+        .drawer-header {
+            padding: 28px 32px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+        }
+        .drawer-title { font-size: 1.2rem; font-weight: 700; color: #fff; }
+        .drawer-sub   { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+        .close-btn {
+            width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border);
+            background: transparent; color: var(--muted); font-size: 18px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+        }
+        .close-btn:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+        .drawer-body { flex: 1; overflow-y: auto; padding: 28px 32px; }
+        .drawer-body::-webkit-scrollbar { width: 4px; }
+        .drawer-body::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 4px; }
+
+        /* ── FORM ── */
+        .form-section { margin-bottom: 28px; }
+        .form-section-title {
+            font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.1em; color: var(--purple-l); margin-bottom: 14px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .form-section-title::after {
+            content: ''; flex: 1; height: 1px; background: var(--border);
+        }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label {
+            display: block; font-size: 0.78rem; font-weight: 600;
+            color: var(--muted); margin-bottom: 7px;
+        }
+        .form-group input,
+        .form-group textarea {
+            width: 100%; padding: 11px 14px;
+            background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+            border-radius: 10px; color: var(--text); font-size: 0.875rem;
+            font-family: inherit; outline: none; transition: all 0.2s;
+        }
+        .form-group input:focus,
+        .form-group textarea:focus {
+            border-color: var(--purple);
+            background: rgba(99,102,241,0.06);
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+        }
+        .form-group input::placeholder,
+        .form-group textarea::placeholder { color: var(--dim); }
+        .form-group textarea { resize: vertical; min-height: 72px; }
+
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+        .input-hint { font-size: 0.7rem; color: var(--dim); margin-top: 5px; }
+
+        .drawer-footer {
+            padding: 20px 32px; border-top: 1px solid var(--border);
+            display: flex; gap: 12px; flex-shrink: 0;
+            background: rgba(15,15,26,0.6);
+        }
+        .drawer-footer .btn { flex: 1; justify-content: center; padding: 12px; }
+
+        /* ── RESPONSIVE ── */
+        @media (max-width: 768px) {
+            .main { padding: 20px; }
+            .header { padding: 0 20px; }
+            .stats { grid-template-columns: 1fr 1fr; }
+            .drawer { width: 100%; }
+            th:nth-child(3), td:nth-child(3),
+            th:nth-child(4), td:nth-child(4) { display: none; }
+        }
+        @media (max-width: 480px) {
+            .stats { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header class="header">
+    <div class="header-left">
+        <div class="logo">🏍️</div>
+        <div>
+            <div class="header-title">Bike Trip Manager</div>
+            <div class="header-sub">Customer Records Dashboard</div>
+        </div>
+    </div>
+    <button class="btn btn-primary" id="openDrawerBtn" onclick="openDrawer()">
+        <span>＋</span> New Trip
+    </button>
+</header>
+
+<!-- ── MAIN ── -->
+<main class="main">
+
+    <!-- Stats -->
+    <div class="stats">
+        <div class="stat">
+            <div class="stat-ico ico-purple">📋</div>
+            <div>
+                <div class="stat-val">{{ trips|length }}</div>
+                <div class="stat-lbl">Total Records</div>
+            </div>
+        </div>
+        <div class="stat">
+            <div class="stat-ico ico-green">🛣️</div>
+            <div>
+                <div class="stat-val">{{ trips|length }}</div>
+                <div class="stat-lbl">Trips Logged</div>
+            </div>
+        </div>
+        <div class="stat">
+            <div class="stat-ico ico-orange">⛽</div>
+            <div>
+                <div class="stat-val">km/L</div>
+                <div class="stat-lbl">Mileage Tracked</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active trip banner -->
+    {% if active_count %}
+    <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.25); border-radius:12px; padding:12px 18px; margin-bottom:20px; display:flex; align-items:center; gap:10px; font-size:0.85rem;">
+        <span style="width:9px;height:9px;background:#ef4444;border-radius:50%;animation:blink 1.2s infinite;flex-shrink:0;"></span>
+        <span style="color:#f87171; font-weight:600;">{{ active_count }} active trip{{ active_count|pluralize }} in progress</span>
+        <span style="color:#64748b;">— click View → on any row to open the live map</span>
+    </div>
+    {% endif %}
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <div class="search-box">
+            <span class="search-ico">🔍</span>
+            <input type="text" id="searchInput" placeholder="Search by bike name or location…" oninput="filterTable()">
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+        {% if trips %}
+        <table id="tripTable">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Bike Name</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Fuel</th>
+                    <th>Mileage</th>
+                    <th>Date</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for trip in trips %}
+                <tr onclick="window.location='{% url 'customer_detail' trip.pk %}'">
+                    <td><span class="id-badge">#{{ trip.pk }}</span></td>
+                    <td>
+                        <span class="bike-name">{{ trip.bikename }}</span>
+                        {% if trip.active_session %}
+                        <span class="pill pill-red" style="margin-left:6px; font-size:0.68rem;">
+                            <span class="live-dot"></span>LIVE
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td><span class="loc-text" title="{{ trip.starting_location }}">{{ trip.starting_location }}</span></td>
+                    <td><span class="loc-text" title="{{ trip.destination_location }}">{{ trip.destination_location }}</span></td>
+                    <td><span class="pill pill-blue">⛽ {{ trip.fueltank_capacity }}L</span></td>
+                    <td><span class="pill pill-green">🛣️ {{ trip.average_mileage }}</span></td>
+                    <td>{{ trip.created_at|date:"d M Y" }}</td>
+                    <td>
+                        {% if trip.active_session %}
+                        <a href="{% url 'trip_map' trip.active_session.pk %}" class="view-btn"
+                           style="background:rgba(239,68,68,0.15);color:#f87171;border-color:rgba(239,68,68,0.3);"
+                           onclick="event.stopPropagation()">● Live Map</a>
+                        {% else %}
+                        <a href="{% url 'customer_detail' trip.pk %}" class="view-btn"
+                           onclick="event.stopPropagation()">View →</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">
+            <div class="empty-ico">🏍️</div>
+            <h3>No trips recorded yet</h3>
+            <p>Click "New Trip" to add your first bike trip record.</p>
+            <button class="btn btn-primary" onclick="openDrawer()">＋ &nbsp;Add First Trip</button>
+        </div>
+        {% endif %}
+    </div>
+</main>
+
+<!-- ── OVERLAY ── -->
+<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+
+<!-- ── DRAWER ── -->
+<div class="drawer" id="drawer">
+    <div class="drawer-header">
+        <div>
+            <div class="drawer-title">🏍️ &nbsp;New Bike Trip</div>
+            <div class="drawer-sub">Fill in the details to log a new trip record</div>
+        </div>
+        <button class="close-btn" onclick="closeDrawer()">✕</button>
+    </div>
+
+    <div class="drawer-body">
+        <form method="POST" action="{% url 'bike_submit' %}" id="tripForm">
+            {% csrf_token %}
+
+            <!-- Bike Info -->
+            <div class="form-section">
+                <div class="form-section-title">Bike Information</div>
+
+                <div class="form-group">
+                    <label for="bikename">Bike Name / Model</label>
+                    <input type="text" id="bikename" name="bikename"
+                           placeholder="e.g. Royal Enfield Himalayan" required>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="fueltank_capacity">Fuel Tank (Liters)</label>
+                        <input type="number" id="fueltank_capacity" name="fueltank_capacity"
+                               placeholder="e.g. 15.0" step="0.1" min="0.1" required>
+                        <div class="input-hint">Total tank capacity in litres</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="average_mileage">Mileage (km/L)</label>
+                        <input type="number" id="average_mileage" name="average_mileage"
+                               placeholder="e.g. 35.5" step="0.1" min="0.1" required>
+                        <div class="input-hint">Average kilometres per litre</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Route Info -->
+            <div class="form-section">
+                <div class="form-section-title">Route Details</div>
+
+                <div class="form-group">
+                    <label for="starting_location">Starting Location</label>
+                    <textarea id="starting_location" name="starting_location"
+                              placeholder="e.g. Mumbai, Maharashtra" required></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="destination_location">Destination</label>
+                    <textarea id="destination_location" name="destination_location"
+                              placeholder="e.g. Pune, Maharashtra" required></textarea>
+                </div>
+            </div>
+
+            <!-- Range Preview -->
+            <div class="form-section">
+                <div class="form-section-title">Estimated Range</div>
+                <div class="stat" style="background: rgba(16,185,129,0.07); border-color: rgba(16,185,129,0.2);">
+                    <div class="stat-ico ico-green">📏</div>
+                    <div>
+                        <div class="stat-val" id="rangePreview" style="color:#34d399;">—</div>
+                        <div class="stat-lbl">km on a full tank</div>
+                    </div>
+                </div>
+            </div>
+
+        </form>
+    </div>
+
+    <div class="drawer-footer">
+        <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>
+        <button class="btn btn-primary" onclick="document.getElementById('tripForm').submit()">
+            ✓ &nbsp;Save Trip
+        </button>
+    </div>
+</div>
+
+<script>
+    // ── Drawer open/close ──
+    function openDrawer() {
+        document.getElementById('drawer').classList.add('open');
+        document.getElementById('overlay').classList.add('open');
+        document.body.style.overflow = 'hidden';
+        setTimeout(() => document.getElementById('bikename').focus(), 350);
+    }
+    function closeDrawer() {
+        document.getElementById('drawer').classList.remove('open');
+        document.getElementById('overlay').classList.remove('open');
+        document.body.style.overflow = '';
+    }
+    // Close on Escape
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+    // ── Live range calculator ──
+    function calcRange() {
+        const tank    = parseFloat(document.getElementById('fueltank_capacity').value) || 0;
+        const mileage = parseFloat(document.getElementById('average_mileage').value)   || 0;
+        const range   = tank * mileage;
+        document.getElementById('rangePreview').textContent = range > 0 ? range.toFixed(0) : '—';
+    }
+    document.getElementById('fueltank_capacity').addEventListener('input', calcRange);
+    document.getElementById('average_mileage').addEventListener('input', calcRange);
+
+    // ── Table search ──
+    function filterTable() {
+        const q = document.getElementById('searchInput').value.toLowerCase();
+        document.querySelectorAll('#tripTable tbody tr').forEach(row => {
+            row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+    }
+</script>
+
+</body>
+</html>

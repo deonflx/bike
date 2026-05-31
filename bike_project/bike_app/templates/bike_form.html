@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bike Information Form</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: bold;
+        }
+        input[type="text"],
+        input[type="number"],
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 14px;
+        }
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #4CAF50;
+            box-shadow: 0 0 5px rgba(76, 175, 80, 0.3);
+        }
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+        button {
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .submit-btn {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .submit-btn:hover {
+            background-color: #45a049;
+        }
+        .reset-btn {
+            background-color: #f44336;
+            color: white;
+        }
+        .reset-btn:hover {
+            background-color: #da190b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Bike Trip Information</h1>
+        
+        <form method="POST" action="{% url 'bike_submit' %}">
+            {% csrf_token %}
+            
+            <div class="form-group">
+                <label for="bikename">Bike Name:</label>
+                <input type="text" id="bikename" name="bikename" placeholder="Enter bike name/model" required>
+            </div>
+
+            <div class="form-group">
+                <label for="fueltank_capacity">Fuel Tank Capacity (Liters):</label>
+                <input type="number" id="fueltank_capacity" name="fueltank_capacity" 
+                       placeholder="Enter fuel tank capacity" step="0.1" required>
+            </div>
+
+            <div class="form-group">
+                <label for="average_mileage">Average Mileage (km/liter):</label>
+                <input type="number" id="average_mileage" name="average_mileage" 
+                       placeholder="Enter average mileage" step="0.1" required>
+            </div>
+
+            <div class="form-group">
+                <label for="starting_location">Starting Location:</label>
+                <textarea id="starting_location" name="starting_location" 
+                          placeholder="Enter starting location (address/city/coordinates)" required></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="destination_location">Destination Location:</label>
+                <textarea id="destination_location" name="destination_location" 
+                          placeholder="Enter destination location (address/city/coordinates)" required></textarea>
+            </div>
+
+            <div class="button-group">
+                <button type="submit" class="submit-btn">Submit</button>
+                <button type="reset" class="reset-btn">Clear Form</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

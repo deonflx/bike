@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if view_only %}Route — {{ trip.bikename }}{% else %}Live Trip — {{ session.bike_trip.bikename }}{% endif %}</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --purple: #6366f1; --purple-l: #818cf8;
+            --green: #10b981;  --red: #ef4444;
+            --bg: #0f0f1a;     --bg2: #1a1a2e;
+            --border: rgba(99,102,241,0.2);
+            --text: #e2e8f0;   --muted: #94a3b8; --dim: #64748b;
+        }
+        html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+
+        /* ── TOP BAR ── */
+        .topbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 1000; height: 60px;
+            background: rgba(15,15,26,0.92); backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; padding: 0 20px; gap: 16px;
+        }
+        .logo { width: 36px; height: 36px; background: linear-gradient(135deg, var(--purple), #8b5cf6); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+        .trip-name { font-size: 1rem; font-weight: 700; color: #fff; }
+        .trip-subtitle { font-size: 0.72rem; color: var(--dim); margin-top: 1px; }
+        .live-badge {
+            display: flex; align-items: center; gap: 6px;
+            background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.35);
+            color: #f87171; padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700;
+        }
+        .route-badge {
+            display: flex; align-items: center; gap: 6px;
+            background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.35);
+            color: #818cf8; padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700;
+        }
+        .live-dot { width: 7px; height: 7px; background: #ef4444; border-radius: 50%; animation: blink 1.2s infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+        .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 7px 14px; border-radius: 9px; font-size: 0.8rem;
+            font-weight: 600; cursor: pointer; border: none; font-family: inherit;
+            text-decoration: none; transition: all 0.2s;
+        }
+        .btn-ghost { background: rgba(255,255,255,0.06); color: var(--muted); }
+        .btn-ghost:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .btn-danger { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+        .btn-danger:hover { background: #ef4444; color: #fff; }
+        .btn-start-trip {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff; border: none;
+            box-shadow: 0 4px 14px rgba(16,185,129,0.35);
+        }
+        .btn-start-trip:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(16,185,129,0.45); }
+
+        /* ── MAP ── */
+        #map { position: fixed; top: 60px; left: 0; right: 0; bottom: 0; }
+
+        /* ── INFO PANEL ── */
+        .panel {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+            z-index: 900; width: min(560px, calc(100vw - 32px));
+            background: rgba(15,15,26,0.92); backdrop-filter: blur(20px);
+            border: 1px solid var(--border); border-radius: 20px;
+            padding: 18px 22px;
+        }
+        .panel-route {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+        }
+        .panel-route.no-stats { margin-bottom: 0; }
+        .loc-label { font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.07em; }
+        .loc-val   { font-size: 0.88rem; font-weight: 600; color: #fff; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+        .arrow-line {
+            flex: 1; height: 2px; background: linear-gradient(90deg, var(--purple), var(--green));
+            border-radius: 2px; position: relative;
+        }
+        .arrow-line::after { content: '▶'; position: absolute; right: -8px; top: -8px; color: var(--green); font-size: 12px; }
+
+        .panel-stats {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+        }
+        .stat-box { text-align: center; }
+        .stat-box-val { font-size: 1.2rem; font-weight: 800; color: #fff; }
+        .stat-box-lbl { font-size: 0.68rem; color: var(--dim); margin-top: 2px; }
+        .stat-box-val.green  { color: #34d399; }
+        .stat-box-val.purple { color: var(--purple-l); }
+        .stat-box-val.orange { color: #fbbf24; }
+        .stat-divider { width: 1px; background: rgba(255,255,255,0.06); margin: 4px 0; }
+
+        /* ── STATUS TOAST ── */
+        .toast {
+            position: fixed; top: 72px; left: 50%; transform: translateX(-50%);
+            z-index: 1100; background: rgba(15,15,26,0.95); border: 1px solid var(--border);
+            border-radius: 12px; padding: 10px 20px; font-size: 0.82rem; color: var(--muted);
+            transition: opacity 0.4s; white-space: nowrap;
+        }
+        .toast.hidden { opacity: 0; pointer-events: none; }
+
+        /* ── CUSTOM MARKERS ── */
+        .pulse-marker {
+            width: 18px; height: 18px; border-radius: 50%;
+            background: #3b82f6; border: 3px solid #fff;
+            box-shadow: 0 0 0 6px rgba(59,130,246,0.3);
+            animation: pulse-ring 2s infinite;
+        }
+        @keyframes pulse-ring {
+            0%   { box-shadow: 0 0 0 0 rgba(59,130,246,0.5); }
+            70%  { box-shadow: 0 0 0 14px rgba(59,130,246,0); }
+            100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+        }
+        .start-marker-icon, .end-marker-icon {
+            width: 32px; height: 32px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+            display: flex; align-items: center; justify-content: center; border: 3px solid #fff;
+        }
+        .start-marker-icon { background: var(--purple); }
+        .end-marker-icon   { background: var(--green); }
+        .start-marker-icon span, .end-marker-icon span { transform: rotate(45deg); font-size: 14px; }
+
+        /* Leaflet dark override */
+        .leaflet-tile { filter: brightness(0.85) saturate(0.9); }
+        .leaflet-control-attribution { background: rgba(15,15,26,0.7) !important; color: #64748b !important; }
+        .leaflet-control-zoom a { background: rgba(26,26,46,0.95) !important; color: #e2e8f0 !important; border-color: var(--border) !important; }
+        .leaflet-control-zoom a:hover { background: rgba(99,102,241,0.2) !important; }
+    </style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+    <div class="logo">🏍️</div>
+    <div>
+        <div class="trip-name">{% if view_only %}{{ trip.bikename }}{% else %}{{ session.bike_trip.bikename }}{% endif %}</div>
+        <div class="trip-subtitle">{% if view_only %}Route Preview{% else %}Live Tracking{% endif %}</div>
+    </div>
+    {% if view_only %}
+    <div class="route-badge">🗺️ ROUTE</div>
+    {% elif session.is_active %}
+    <div class="live-badge"><div class="live-dot"></div> LIVE</div>
+    {% endif %}
+    <div class="topbar-right">
+        <a href="{% if view_only %}{% url 'customer_detail' trip.pk %}{% else %}{% url 'customer_detail' session.bike_trip.pk %}{% endif %}" class="btn btn-ghost">← Details</a>
+        {% if view_only %}
+        <a href="{% url 'start_trip' trip.pk %}" class="btn btn-start-trip">▶ Start Trip</a>
+        {% elif session.is_active %}
+        <a href="{% url 'end_trip' session.pk %}" class="btn btn-danger"
+           onclick="return confirm('End this trip?')">⏹ End Trip</a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- MAP -->
+<div id="map"></div>
+
+<!-- STATUS TOAST -->
+<div class="toast" id="toast">{% if view_only %}🌍 Loading route…{% else %}📡 Acquiring GPS signal…{% endif %}</div>
+
+<!-- INFO PANEL -->
+<div class="panel">
+    <div class="panel-route {% if view_only %}no-stats{% endif %}">
+        <div>
+            <div class="loc-label">From</div>
+            <div class="loc-val" title="{% if view_only %}{{ trip.starting_location }}{% else %}{{ session.bike_trip.starting_location }}{% endif %}">{% if view_only %}{{ trip.starting_location }}{% else %}{{ session.bike_trip.starting_location }}{% endif %}</div>
+        </div>
+        <div class="arrow-line"></div>
+        <div style="text-align:right">
+            <div class="loc-label">To</div>
+            <div class="loc-val" title="{% if view_only %}{{ trip.destination_location }}{% else %}{{ session.bike_trip.destination_location }}{% endif %}">{% if view_only %}{{ trip.destination_location }}{% else %}{{ session.bike_trip.destination_location }}{% endif %}</div>
+        </div>
+    </div>
+    {% if not view_only %}
+    <div class="panel-stats">
+        <div class="stat-box">
+            <div class="stat-box-val green" id="distTravelled">—</div>
+            <div class="stat-box-lbl">km travelled</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-box-val orange" id="distRemaining">—</div>
+            <div class="stat-box-lbl">km to destination</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-box-val purple" id="accuracy">—</div>
+            <div class="stat-box-lbl">GPS accuracy (m)</div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Leaflet -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const VIEW_ONLY     = {% if view_only %}true{% else %}false{% endif %};
+{% if view_only %}
+const SESSION_PK    = null;
+const IS_ACTIVE     = false;
+const FROM_TEXT     = "{{ trip.starting_location|escapejs }}";
+const TO_TEXT       = "{{ trip.destination_location|escapejs }}";
+const SAVED_LAT     = null;
+const SAVED_LNG     = null;
+const UPDATE_URL    = "";
+const CSRF_TOKEN    = "";
+const BACK_PK       = {{ trip.pk }};
+{% else %}
+const SESSION_PK    = {{ session.pk }};
+const IS_ACTIVE     = {{ session.is_active|yesno:"true,false" }};
+const FROM_TEXT     = "{{ session.bike_trip.starting_location|escapejs }}";
+const TO_TEXT       = "{{ session.bike_trip.destination_location|escapejs }}";
+const SAVED_LAT     = {{ session.current_lat|default:"null" }};
+const SAVED_LNG     = {{ session.current_lng|default:"null" }};
+const UPDATE_URL    = "{% url 'update_location' session.pk %}";
+const CSRF_TOKEN    = "{{ csrf_token }}";
+const BACK_PK       = {{ session.bike_trip.pk }};
+{% endif %}
+
+// ── Map init ─────────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([20.5937, 78.9629], 5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors', maxZoom: 19
+}).addTo(map);
+
+// ── Marker factories ─────────────────────────────────────────────────────────
+function makeStartIcon() {
+    return L.divIcon({
+        html: '<div class="start-marker-icon"><span>🏠</span></div>',
+        className: '', iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -36]
+    });
+}
+function makeEndIcon() {
+    return L.divIcon({
+        html: '<div class="end-marker-icon"><span>🏁</span></div>',
+        className: '', iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -36]
+    });
+}
+function makePulseIcon() {
+    return L.divIcon({
+        html: '<div class="pulse-marker"></div>',
+        className: '', iconSize: [18, 18], iconAnchor: [9, 9]
+    });
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+let startCoords = null, endCoords = null, currentCoords = null;
+let startMarker = null, endMarker = null, currentMarker = null;
+let routeLine   = null;
+
+// ── Toast helper ─────────────────────────────────────────────────────────────
+function showToast(msg, autohide = true) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    if (autohide) setTimeout(() => el.classList.add('hidden'), 3500);
+}
+
+// ── Geocoding via Nominatim ──────────────────────────────────────────────────
+async function geocode(address) {
+    try {
+        const r = await fetch(
+            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+            { headers: { 'Accept-Language': 'en' } }
+        );
+        const d = await r.json();
+        if (d.length > 0) return [parseFloat(d[0].lat), parseFloat(d[0].lon)];
+    } catch(e) { console.warn('Geocode failed:', e); }
+    return null;
+}
+
+// ── Haversine distance (km) (Fallback) ───────────────────────────────────────
+function haversine([lat1, lng1], [lat2, lng2]) {
+    const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// ── Update route using OSRM API ──────────────────────────────────────────────
+async function drawRoute() {
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    const pts = [startCoords, currentCoords, endCoords].filter(Boolean);
+    if (pts.length >= 2) {
+        // Format coordinates for OSRM: lng,lat;lng,lat
+        const coordsStr = pts.map(p => `${p[1]},${p[0]}`).join(';');
+        try {
+            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`);
+            const data = await res.json();
+            
+            if (data.routes && data.routes.length > 0) {
+                const route = data.routes[0];
+                routeLine = L.geoJSON(route.geometry, {
+                    style: { color: '#6366f1', weight: 5, opacity: 0.8 }
+                }).addTo(map);
+
+                // Update distances with actual road distances (only in live mode)
+                if (!VIEW_ONLY) {
+                    if (pts.length === 3) {
+                        document.getElementById('distTravelled').textContent = (route.legs[0].distance / 1000).toFixed(1);
+                        document.getElementById('distRemaining').textContent = (route.legs[1].distance / 1000).toFixed(1);
+                    } else if (pts.length === 2) {
+                        if (startCoords && currentCoords) {
+                            document.getElementById('distTravelled').textContent = (route.legs[0].distance / 1000).toFixed(1);
+                        } else if (currentCoords && endCoords) {
+                            document.getElementById('distRemaining').textContent = (route.legs[0].distance / 1000).toFixed(1);
+                        } else if (startCoords && endCoords) {
+                            document.getElementById('distRemaining').textContent = (route.legs[0].distance / 1000).toFixed(1);
+                        }
+                    }
+                }
+                return; // Success, exit function
+            }
+        } catch(e) { console.warn('OSRM routing failed, falling back to straight line:', e); }
+
+        // Fallback to straight dashed line if API fails
+        routeLine = L.polyline(pts, {
+            color: '#6366f1', weight: 4, opacity: 0.8,
+            dashArray: '8, 6', dashOffset: '0'
+        }).addTo(map);
+    }
+}
+
+// ── Update stats panel (Fallback — only in live mode) ────────────────────────
+function updateStats() {
+    if (VIEW_ONLY) return;
+    if (startCoords && currentCoords) {
+        const d = haversine(startCoords, currentCoords);
+        document.getElementById('distTravelled').textContent = d.toFixed(1);
+    }
+    if (endCoords && currentCoords) {
+        const r = haversine(currentCoords, endCoords);
+        document.getElementById('distRemaining').textContent = r.toFixed(1);
+    } else if (startCoords && endCoords && !currentCoords) {
+        const r = haversine(startCoords, endCoords);
+        document.getElementById('distRemaining').textContent = r.toFixed(1);
+    }
+}
+
+// ── Place / move current position marker ─────────────────────────────────────
+function setCurrentPosition(lat, lng, acc) {
+    currentCoords = [lat, lng];
+    if (!currentMarker) {
+        currentMarker = L.marker([lat, lng], { icon: makePulseIcon() })
+            .addTo(map)
+            .bindPopup('📍 You are here');
+    } else {
+        currentMarker.setLatLng([lat, lng]);
+    }
+    if (acc && !VIEW_ONLY) document.getElementById('accuracy').textContent = Math.round(acc);
+    drawRoute();
+    updateStats();
+}
+
+// ── Send location to Django API ──────────────────────────────────────────────
+async function pushLocation(lat, lng) {
+    try {
+        await fetch(UPDATE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body: JSON.stringify({ lat, lng })
+        });
+    } catch(e) { console.warn('Location push failed:', e); }
+}
+
+// ── Start GPS watch ──────────────────────────────────────────────────────────
+let lastPushTime = 0;
+function startGPS() {
+    if (!navigator.geolocation) {
+        showToast('❌ Geolocation not supported by this browser', false);
+        return;
+    }
+    navigator.geolocation.watchPosition(
+        (pos) => {
+            const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+            setCurrentPosition(lat, lng, accuracy);
+            showToast('📍 Location updated');
+
+            // Fit map to show all markers on first fix
+            if (!lastPushTime) fitMapToMarkers();
+
+            // Push to server every 5 seconds
+            const now = Date.now();
+            if (now - lastPushTime >= 5000) {
+                lastPushTime = now;
+                if (IS_ACTIVE) pushLocation(lat, lng);
+            }
+        },
+        (err) => { showToast(`⚠️ GPS error: ${err.message}`, false); },
+        { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
+    );
+}
+
+// ── Fit map bounds ───────────────────────────────────────────────────────────
+function fitMapToMarkers() {
+    const pts = [startCoords, currentCoords, endCoords].filter(Boolean);
+    if (pts.length >= 2) map.fitBounds(L.latLngBounds(pts), { padding: [80, 80] });
+    else if (pts.length === 1) map.setView(pts[0], 14);
+}
+
+// ── Animate dashed route (for fallback only) ─────────────────────────────────
+let dashOffset = 0;
+setInterval(() => {
+    if (routeLine && typeof routeLine.setStyle === 'function' && !routeLine._layers) {
+        // Only animate if it's a simple Polyline (fallback), not a GeoJSON layer group
+        dashOffset = (dashOffset - 1 + 14) % 14;
+        routeLine.setStyle({ dashOffset: String(dashOffset) });
+    }
+}, 60);
+
+// ── Main init ────────────────────────────────────────────────────────────────
+(async () => {
+    showToast('🌍 Locating start & destination…', false);
+
+    // Geocode with a small delay to respect Nominatim rate limit
+    startCoords = await geocode(FROM_TEXT);
+    await new Promise(r => setTimeout(r, 1100));
+    endCoords   = await geocode(TO_TEXT);
+
+    if (startCoords) {
+        startMarker = L.marker(startCoords, { icon: makeStartIcon() })
+            .addTo(map)
+            .bindPopup(`<b>🏠 Start</b><br>${FROM_TEXT}`);
+    }
+    if (endCoords) {
+        endMarker = L.marker(endCoords, { icon: makeEndIcon() })
+            .addTo(map)
+            .bindPopup(`<b>🏁 Destination</b><br>${TO_TEXT}`);
+    }
+
+    // If there's a saved location from the DB, show it
+    if (SAVED_LAT && SAVED_LNG) {
+        setCurrentPosition(SAVED_LAT, SAVED_LNG, null);
+    }
+
+    fitMapToMarkers();
+    drawRoute();
+
+    // Mode-specific behavior
+    if (VIEW_ONLY) {
+        showToast('🗺️ Route preview loaded', true);
+    } else if (IS_ACTIVE) {
+        showToast('📡 Acquiring GPS signal…', false);
+        startGPS();
+    } else {
+        showToast('⏹ This trip has ended', false);
+    }
+})();
+</script>
+</body>
+</html>
