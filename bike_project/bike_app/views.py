@@ -5,6 +5,8 @@ from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 from django.contrib.gis.geos import Point
 # pyrefly: ignore [missing-import]
+
+# pyrefly: ignore [missing-import]
 from .models import BikeTrip, TripSession
 
 
@@ -151,3 +153,62 @@ def delete_trip(request, pk):
         trip.delete()
         return redirect('customer_list')
     return redirect('customer_detail', pk=pk)
+
+
+@csrf_exempt
+def generate_ai_tips(request, pk):
+    """API: Generate AI tips using Google Gemini"""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST only'}, status=405)
+    
+    trip = get_object_or_404(BikeTrip, pk=pk)
+    
+    try:
+        data = json.loads(request.body)
+        distance = data.get('distance', 0)
+        duration_mins = data.get('duration', 0)
+        weather_conditions = data.get('weather', [])
+        
+        # Calculate bike capabilities
+        max_range = trip.fueltank_capacity * trip.average_mileage
+        
+        # Construct the prompt
+        weather_text = ", ".join(weather_conditions) if weather_conditions else "Unknown weather"
+        prompt = f"""
+You are an expert motorcycle touring advisor. 
+The user is planning a trip on their {trip.bikename} from {trip.starting_location} to {trip.destination_location}.
+The total trip distance is {distance} km.
+The estimated pure driving time is {duration_mins} minutes.
+The bike has a maximum fuel range of {max_range} km (based on {trip.fueltank_capacity}L tank and {trip.average_mileage} km/l).
+The weather forecast along the route is: {weather_text}.
+
+Please provide a highly detailed but well-formatted advisory covering exactly these points:
+1. **Total Estimated Fuel Cost:** Assume a rough average price of ₹100 per liter (or equivalent local currency). Calculate the total liters needed and the total cost.
+2. **Total Trip Time & Break Schedule:** Calculate the total trip time including recommended breaks. Tell them exactly when/where to take breaks (e.g. "Take a 15-min break every X hours").
+3. **Route & Safety Advice:** Give advice on navigating this route considering the provided weather forecast and distance. Keep it punchy!
+"""
+        import os
+        # pyrefly: ignore [missing-import]
+        from google import genai
+        import markdown
+        from dotenv import load_dotenv
+        
+        # Load environment variables from .env file
+        load_dotenv()
+        
+        client = genai.Client()
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        
+        # Convert markdown response to HTML for easy rendering
+        html_response = markdown.markdown(response.text)
+        
+        return JsonResponse({'status': 'ok', 'html': html_response})
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'error': str(e)}, status=500)
+

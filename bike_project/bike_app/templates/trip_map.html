@@ -57,6 +57,44 @@
             box-shadow: 0 4px 14px rgba(16,185,129,0.35);
         }
         .btn-start-trip:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(16,185,129,0.45); }
+        .btn-ai {
+            background: linear-gradient(135deg, #a855f7, #6366f1);
+            color: #fff; border: none;
+            box-shadow: 0 4px 14px rgba(168,85,247,0.35);
+        }
+        .btn-ai:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(168,85,247,0.45); }
+        
+        /* ── AI MODAL ── */
+        #ai-modal {
+            position: fixed; top: 0; right: -400px; bottom: 0; width: 400px; max-width: 100vw;
+            background: rgba(15,15,26,0.95); backdrop-filter: blur(20px);
+            border-left: 1px solid var(--border); z-index: 2000;
+            transition: right 0.3s ease; display: flex; flex-direction: column;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+        }
+        #ai-modal.open { right: 0; }
+        .ai-header {
+            padding: 20px; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .ai-title { font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+        .ai-close { background: none; border: none; color: var(--muted); font-size: 1.5rem; cursor: pointer; }
+        .ai-close:hover { color: #fff; }
+        .ai-content {
+            padding: 20px; flex: 1; overflow-y: auto; font-size: 0.95rem; line-height: 1.6;
+        }
+        .ai-content h1, .ai-content h2, .ai-content h3 { color: #a855f7; margin: 16px 0 8px 0; font-size: 1.1rem; }
+        .ai-content p { margin-bottom: 12px; }
+        .ai-content ul { margin-left: 20px; margin-bottom: 12px; }
+        .ai-content li { margin-bottom: 6px; }
+        .ai-loader {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--muted); gap: 12px;
+        }
+        .spinner {
+            width: 30px; height: 30px; border: 3px solid rgba(168,85,247,0.3);
+            border-top-color: #a855f7; border-radius: 50%; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
         /* ── MAP ── */
         #map { position: fixed; top: 60px; left: 0; right: 0; bottom: 0; }
@@ -144,6 +182,7 @@
     {% endif %}
     <div class="topbar-right">
         <a href="{% if view_only %}{% url 'customer_detail' trip.pk %}{% else %}{% url 'customer_detail' session.bike_trip.pk %}{% endif %}" class="btn btn-ghost">← Details</a>
+        <button onclick="askAI()" class="btn btn-ai">✨ Ask AI Advisor</button>
         {% if view_only %}
         <a href="{% url 'start_trip' trip.pk %}" class="btn btn-start-trip">▶ Start Trip</a>
         {% elif session.is_active %}
@@ -155,6 +194,15 @@
 
 <!-- MAP -->
 <div id="map"></div>
+
+<!-- AI MODAL -->
+<div id="ai-modal">
+    <div class="ai-header">
+        <div class="ai-title">✨ AI Trip Advisor</div>
+        <button class="ai-close" onclick="document.getElementById('ai-modal').classList.remove('open')">×</button>
+    </div>
+    <div class="ai-content" id="ai-content"></div>
+</div>
 
 <!-- STATUS TOAST -->
 <div class="toast" id="toast">{% if view_only %}🌍 Loading route…{% else %}📡 Acquiring GPS signal…{% endif %}</div>
@@ -277,6 +325,73 @@ function haversine([lat1, lng1], [lat2, lng2]) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+// ── Weather API (Open-Meteo) ─────────────────────────────────────────────────
+let weatherMarkers = [];
+
+function sampleRoutePoints(routeCoords, count = 5) {
+    const points = [];
+    if (!routeCoords || routeCoords.length === 0) return points;
+    for (let i = 0; i < count; i++) {
+        const idx = Math.floor(i * (routeCoords.length - 1) / (count - 1));
+        points.push(routeCoords[idx]);
+    }
+    return points;
+}
+
+async function getWeather(lat, lng) {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weather_code,wind_speed_10m&timezone=auto`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data.current;
+}
+
+function weatherEmoji(code) {
+    if (code === 0) return '☀️';          // Clear sky
+    if (code <= 3) return '⛅';           // Partly cloudy
+    if (code <= 48) return '🌫️';         // Fog
+    if (code <= 57) return '🌧️';         // Drizzle
+    if (code <= 67) return '🌧️';         // Rain
+    if (code <= 77) return '❄️';          // Snow
+    if (code <= 82) return '🌧️';         // Rain showers
+    if (code >= 95) return '⛈️';          // Thunderstorm
+    return '🌤️';
+}
+
+async function showRouteWeather(routeCoords) {
+    // Clear previous weather markers
+    weatherMarkers.forEach(m => map.removeLayer(m));
+    weatherMarkers = [];
+
+    const points = sampleRoutePoints(routeCoords, 5);
+    for (const [lng, lat] of points) {
+        try {
+            const weather = await getWeather(lat, lng);
+            const emoji = weatherEmoji(weather.weather_code);
+            const temp = Math.round(weather.temperature_2m);
+            const wind = Math.round(weather.wind_speed_10m);
+
+            const m = L.marker([lat, lng], {
+                icon: L.divIcon({
+                    html: `<div style="background:rgba(15,15,26,0.85); border:1px solid rgba(99,102,241,0.4);
+                            border-radius:12px; padding:4px 8px; white-space:nowrap; font-size:12px;
+                            color:#fff; font-family:Inter,sans-serif; backdrop-filter:blur(8px);
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                            ${emoji} ${temp}°C <span style="color:#94a3b8; margin-left:4px; font-size:10px;">💨${wind}km/h</span>
+                           </div>`,
+                    className: '', iconAnchor: [40, 40]
+                }),
+                interactive: false // Don't block clicks on the map
+            }).addTo(map);
+            weatherMarkers.push(m);
+            
+            // Store for AI
+            currentWeatherData.push(`${emoji} ${temp}°C, Wind ${wind}km/h`);
+        } catch (e) {
+            console.warn('Weather fetch failed for point', lat, lng, e);
+        }
+    }
+}
+
 // ── Update route using OSRM API ──────────────────────────────────────────────
 async function drawRoute() {
     if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
@@ -294,7 +409,16 @@ async function drawRoute() {
                     style: { color: '#6366f1', weight: 5, opacity: 0.8 }
                 }).addTo(map);
 
-                // Update distances with actual road distances (only in live mode)
+                // Fetch and display weather along this route
+                if (route.geometry && route.geometry.coordinates) {
+                    currentWeatherData = []; // reset for AI
+                    showRouteWeather(route.geometry.coordinates);
+                }
+
+                // Update distances and duration (only in live mode or stored for AI)
+                const totalDist = route.distance / 1000;
+                routeDistanceKm = totalDist; // Store for AI
+                routeDurationMins = Math.round(route.duration / 60); // Store for AI
                 if (!VIEW_ONLY) {
                     if (pts.length === 3) {
                         document.getElementById('distTravelled').textContent = (route.legs[0].distance / 1000).toFixed(1);
@@ -350,6 +474,50 @@ function setCurrentPosition(lat, lng, acc) {
     if (acc && !VIEW_ONLY) document.getElementById('accuracy').textContent = Math.round(acc);
     drawRoute();
     updateStats();
+}
+
+// ── Ask AI Advisor ────────────────────────────────────────────────────────────
+let routeDistanceKm = 0; // Stored from drawRoute
+let routeDurationMins = 0; // Stored from drawRoute
+let currentWeatherData = []; // Stored from showRouteWeather
+
+async function askAI() {
+    const modal = document.getElementById('ai-modal');
+    const content = document.getElementById('ai-content');
+    modal.classList.add('open');
+    
+    // Show loader
+    content.innerHTML = `
+        <div class="ai-loader">
+            <div class="spinner"></div>
+            <div>Analyzing route, weather, and bike capabilities...</div>
+        </div>
+    `;
+    
+    // Prepare data
+    const tripPk = {% if view_only %}{{ trip.pk }}{% else %}{{ session.bike_trip.pk }}{% endif %};
+    const payload = {
+        distance: routeDistanceKm,
+        duration: routeDurationMins,
+        weather: currentWeatherData
+    };
+
+    try {
+        const res = await fetch(`/customers/${tripPk}/ai-tips/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        
+        if (data.error) {
+            content.innerHTML = `<div style="color:var(--red);">Error: ${data.error}</div>`;
+        } else {
+            content.innerHTML = data.html; // Markdown rendered as HTML by Django
+        }
+    } catch(e) {
+        content.innerHTML = `<div style="color:var(--red);">Failed to connect to AI server.</div>`;
+    }
 }
 
 // ── Send location to Django API ──────────────────────────────────────────────

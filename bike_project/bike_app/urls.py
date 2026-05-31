@@ -22,4 +22,7 @@ urlpatterns = [
     path('session/<int:session_pk>/update/', views.update_location, name='update_location'),
     path('session/<int:session_pk>/data/', views.session_data, name='session_data'),
     path('session/<int:session_pk>/end/', views.end_trip, name='end_trip'),
+    
+    # AI Advisor
+    path('customers/<int:pk>/ai-tips/', views.generate_ai_tips, name='generate_ai_tips'),
 ]
