@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import requests as http_requests
 
 from django.shortcuts import render, redirect, get_object_or_404
@@ -9,12 +10,14 @@ from django.http import JsonResponse
 from django.contrib.gis.geos import Point
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # pyrefly: ignore [missing-import]
 from .models import BikeTrip, TripSession, RouteWeather
 # pyrefly: ignore [missing-import]
 from .redis_client import save_bike_specs, get_bike_specs, delete_bike_specs
+# pyrefly: ignore [missing-import]
+from .ai_helper import generate_content
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -41,11 +44,6 @@ def _geocode(place_name: str):
     return None
 
 
-def _gemini_client():
-    from google import genai  # pyrefly: ignore [missing-import]
-    return genai.Client()
-
-
 # ─── Bike Trip Form ────────────────────────────────────────────────────────────
 
 def bike_form(request):
@@ -64,21 +62,21 @@ def bike_submit(request):
     starting_name    = request.POST.get('starting_location', '').strip()
     destination_name = request.POST.get('destination_location', '').strip()
 
-    # 1. Geocode locations (PostGIS)
+    # 1. Geocode locations (PostGIS) - Needs delay for Nominatim rate limits (1 req/sec)
     starting_point    = _geocode(starting_name)
+    time.sleep(1.2)
     destination_point = _geocode(destination_name)
 
-    # 2. Fetch bike specs via Gemini (will go to Redis)
+    # 2. Fetch bike specs via Gemini/OpenAI (will go to Redis)
     try:
-        client = _gemini_client()
         prompt = (
             f"Return the average fuel tank capacity (liters) and average mileage (km/l) "
             f"for the motorcycle model '{bikename}'. "
             f"Return ONLY a JSON object with keys 'capacity' and 'mileage'. "
             f"Example: {{\"capacity\": 15, \"mileage\": 35}}"
         )
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        raw_text = response.text.replace('```json', '').replace('```', '').strip()
+        response_text = generate_content(prompt)
+        raw_text = response_text.replace('```json', '').replace('```', '').strip()
         specs    = json.loads(raw_text)
         capacity = float(specs.get('capacity', 15))
         mileage  = float(specs.get('mileage', 35))
@@ -267,9 +265,8 @@ Provide a detailed advisory covering:
 3. Route & safety advice given the weather
 """
         import markdown  # pyrefly: ignore [missing-import]
-        client   = _gemini_client()
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        html     = markdown.markdown(response.text)
+        response_text = generate_content(prompt)
+        html = markdown.markdown(response_text)
         return JsonResponse({'status': 'ok', 'html': html})
 
     except Exception as e:
@@ -313,9 +310,8 @@ Return a concise HTML snippet (use <b>, <br>, <ul>, <li> only — no markdown, n
 <b>🌤️ Route Weather:</b> [1-sentence summary of {weather_text}]<br><br>
 <b>⏱️ Total Time:</b> [driving time estimate] driving + [break time], total ≈ [grand total]
 """
-        client   = _gemini_client()
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        html     = response.text.replace('```html', '').replace('```', '').strip()
+        response_text = generate_content(prompt)
+        html = response_text.replace('```html', '').replace('```', '').strip()
 
         # --- Cache AI-derived numbers back to Redis ---
         save_bike_specs(trip.pk, {

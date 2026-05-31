@@ -345,6 +345,17 @@ async function getWeather(lat, lng) {
     return data.current;
 }
 
+async function getCityName(lat, lng) {
+    try {
+        const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`;
+        const res = await fetch(url);
+        const data = await res.json();
+        return data.city || data.locality || "Route point";
+    } catch (e) {
+        return "Route point";
+    }
+}
+
 function weatherEmoji(code) {
     if (code === 0) return '☀️';          // Clear sky
     if (code <= 3) return '⛅';           // Partly cloudy
@@ -365,7 +376,12 @@ async function showRouteWeather(routeCoords) {
     const points = sampleRoutePoints(routeCoords, 5);
     for (const [lng, lat] of points) {
         try {
-            const weather = await getWeather(lat, lng);
+            // Fetch weather and location name simultaneously
+            const [weather, cityName] = await Promise.all([
+                getWeather(lat, lng),
+                getCityName(lat, lng)
+            ]);
+            
             const emoji = weatherEmoji(weather.weather_code);
             const temp = Math.round(weather.temperature_2m);
             const wind = Math.round(weather.wind_speed_10m);
@@ -373,19 +389,20 @@ async function showRouteWeather(routeCoords) {
             const m = L.marker([lat, lng], {
                 icon: L.divIcon({
                     html: `<div style="background:rgba(15,15,26,0.85); border:1px solid rgba(99,102,241,0.4);
-                            border-radius:12px; padding:4px 8px; white-space:nowrap; font-size:12px;
+                            border-radius:12px; padding:6px 10px; white-space:nowrap; text-align:center;
                             color:#fff; font-family:Inter,sans-serif; backdrop-filter:blur(8px);
                             box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-                            ${emoji} ${temp}°C <span style="color:#94a3b8; margin-left:4px; font-size:10px;">💨${wind}km/h</span>
+                            <div style="font-size:10px; font-weight:600; color:#818cf8; margin-bottom:2px; text-transform:uppercase; letter-spacing:0.05em;">${cityName}</div>
+                            <div style="font-size:13px;">${emoji} ${temp}°C <span style="color:#94a3b8; margin-left:4px; font-size:11px;">💨${wind}km/h</span></div>
                            </div>`,
-                    className: '', iconAnchor: [40, 40]
+                    className: '', iconAnchor: [40, 50]
                 }),
                 interactive: false // Don't block clicks on the map
             }).addTo(map);
             weatherMarkers.push(m);
             
-            // Store for AI
-            currentWeatherData.push(`${emoji} ${temp}°C, Wind ${wind}km/h`);
+            // Store for AI (now includes city name!)
+            currentWeatherData.push(`${cityName}: ${emoji} ${temp}°C, Wind ${wind}km/h`);
         } catch (e) {
             console.warn('Weather fetch failed for point', lat, lng, e);
         }
