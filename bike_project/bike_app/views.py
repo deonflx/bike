@@ -260,7 +260,7 @@ Tank: {capacity}L | Mileage: {mileage} km/l | Max range: {max_range:.0f} km
 Weather: {weather_text}
 
 Provide a detailed advisory covering:
-1. Total estimated fuel cost (₹100/L assumed)
+1. Total estimated fuel cost (₹113/L assumed)
 2. Total trip time with a break schedule
 3. Route & safety advice given the weather
 """
@@ -306,7 +306,7 @@ Weather along route: {weather_text}
 
 Return a concise HTML snippet (use <b>, <br>, <ul>, <li> only — no markdown, no html/body tags):
 
-<b>⛽ Fuel Efficiency & Cost:</b> [mileage] km/l. Consumed: [liters with 10% detour buffer]L ≈ ₹[cost at ₹100/L]<br><br>
+<b>⛽ Fuel Efficiency & Cost:</b> [mileage] km/l. Consumed: [liters with 10% detour buffer]L ≈ ₹[cost at ₹113/L]<br><br>
 <b>🌤️ Route Weather:</b> [1-sentence summary of {weather_text}]<br><br>
 <b>⏱️ Total Time:</b> [driving time estimate] driving + [break time], total ≈ [grand total]
 """
