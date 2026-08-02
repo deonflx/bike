@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 import requests as http_requests
@@ -15,7 +16,7 @@ load_dotenv(override=True)
 # pyrefly: ignore [missing-import]
 from .models import BikeTrip, TripSession, RouteWeather
 # pyrefly: ignore [missing-import]
-from .redis_client import save_bike_specs, get_bike_specs, delete_bike_specs
+from .redis_client import save_bike_specs, get_bike_specs, delete_bike_specs, save_fuel_stops, get_fuel_stops
 # pyrefly: ignore [missing-import]
 from .ai_helper import generate_content
 
@@ -42,6 +43,160 @@ def _geocode(place_name: str):
     except Exception as e:
         print(f"Geocode failed for '{place_name}':", e)
     return None
+
+
+def _haversine_km(lat1, lng1, lat2, lng2):
+    """
+    Calculate the great-circle distance (km) between two WGS-84 points
+    using the Haversine formula.
+    """
+    R = 6371.0  # Earth radius in km
+    d_lat = math.radians(lat2 - lat1)
+    d_lng = math.radians(lng2 - lng1)
+    a = (math.sin(d_lat / 2) ** 2 +
+         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+         math.sin(d_lng / 2) ** 2)
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _compute_refuel_point_and_pumps(starting_point, destination_point, capacity, mileage):
+    """
+    1. Query OSRM for the actual driving route geometry & distance.
+    2. Walk along road coordinates until accumulated distance = 70% of max fuel range.
+    3. Query Overpass API for amenity=fuel within 2 km of that highway point.
+    Returns a dict with refuel_point, total_distance_km, and stations list.
+    Falls back to straight-line interpolation if OSRM fails.
+    """
+    max_range_km    = capacity * mileage
+    refuel_target_km = max_range_km * 0.70
+
+    start_lng, start_lat = starting_point.x, starting_point.y
+    dest_lng, dest_lat    = destination_point.x, destination_point.y
+
+    # ── Step 1: Get driving route from OSRM ──────────────────────────────
+    coords = None
+    total_distance_km = None
+
+    try:
+        osrm_url = (
+            f"http://router.project-osrm.org/route/v1/driving/"
+            f"{start_lng},{start_lat};{dest_lng},{dest_lat}"
+            f"?overview=full&geometries=geojson"
+        )
+        r = http_requests.get(osrm_url, timeout=4.0)
+        data = r.json()
+
+        if data.get('code') == 'Ok' and data.get('routes'):
+            route = data['routes'][0]
+            total_distance_km = route['distance'] / 1000.0  # meters → km
+            coords = route['geometry']['coordinates']       # [[lng, lat], ...]
+            print(f"[OSRM] Route distance: {total_distance_km:.1f} km, "
+                  f"{len(coords)} coordinate points")
+    except Exception as e:
+        print(f"[OSRM] Failed, falling back to straight-line: {e}")
+
+    # ── Fallback: straight-line interpolation if OSRM failed ─────────────
+    if coords is None:
+        total_distance_km = _haversine_km(start_lat, start_lng, dest_lat, dest_lng)
+        coords = [[start_lng, start_lat], [dest_lng, dest_lat]]
+        print(f"[Fallback] Straight-line distance: {total_distance_km:.1f} km")
+
+    # ── Step 2: Check if refueling is even needed ────────────────────────
+    if total_distance_km <= refuel_target_km:
+        return {
+            'needed': False,
+            'reason': f'Trip ({total_distance_km:.1f} km) is within '
+                      f'70% fuel range ({refuel_target_km:.1f} km)',
+            'total_distance_km': round(total_distance_km, 1),
+            'max_range_km': round(max_range_km, 1),
+        }
+
+    # ── Step 3: Walk along route coordinates to find the refuel point ────
+    accumulated_km = 0.0
+    refuel_lat, refuel_lng = None, None
+
+    for i in range(len(coords) - 1):
+        lng1, lat1 = coords[i]
+        lng2, lat2 = coords[i + 1]
+        segment_km = _haversine_km(lat1, lng1, lat2, lng2)
+
+        if accumulated_km + segment_km >= refuel_target_km:
+            # Interpolate within this segment
+            remaining_km = refuel_target_km - accumulated_km
+            fraction = remaining_km / segment_km if segment_km > 0 else 0
+            refuel_lat = lat1 + fraction * (lat2 - lat1)
+            refuel_lng = lng1 + fraction * (lng2 - lng1)
+            break
+
+        accumulated_km += segment_km
+
+    # Safety fallback if loop didn't break (unlikely)
+    if refuel_lat is None:
+        refuel_lat = coords[-1][1]
+        refuel_lng = coords[-1][0]
+
+    print(f"[Refuel Point] At {refuel_target_km:.1f} km → "
+          f"({refuel_lat:.5f}, {refuel_lng:.5f})")
+
+    # ── Step 4: Query Overpass API with expanding radius ─────────────────
+    stations = []
+    search_radii_km = [2, 5, 10, 20, 50]
+    used_radius_km = search_radii_km[0]
+
+    for radius_km in search_radii_km:
+        try:
+            radius_m = radius_km * 1000
+            overpass_query = f"""
+            [out:json];
+            node["amenity"="fuel"](around:{radius_m},{refuel_lat},{refuel_lng});
+            out body;
+            """
+            r = http_requests.post(
+                'https://overpass-api.de/api/interpreter',
+                data={'data': overpass_query},
+                timeout=8.0
+            )
+            elements = r.json().get('elements', [])
+
+            for elem in elements:
+                tags = elem.get('tags', {})
+                pump_lat = elem.get('lat')
+                pump_lng = elem.get('lon')
+                dist_km = _haversine_km(refuel_lat, refuel_lng, pump_lat, pump_lng)
+                stations.append({
+                    'name':     tags.get('name', 'Fuel Station'),
+                    'brand':    tags.get('brand', 'Unknown'),
+                    'lat':      pump_lat,
+                    'lng':      pump_lng,
+                    'distance_km': round(dist_km, 2),
+                })
+
+            stations.sort(key=lambda s: s['distance_km'])
+            used_radius_km = radius_km
+            print(f"[Overpass] Radius {radius_km} km → "
+                  f"found {len(stations)} fuel stations")
+
+            if stations:
+                break  # Found stations, stop expanding
+
+            print(f"[Overpass] No stations at {radius_km} km, expanding…")
+        except Exception as e:
+            print(f"[Overpass] Petrol pump lookup failed at {radius_km} km: {e}")
+            used_radius_km = radius_km
+            break  # Don't retry on network/API errors
+
+    return {
+        'needed': True,
+        'total_distance_km': round(total_distance_km, 1),
+        'max_range_km': round(max_range_km, 1),
+        'refuel_distance_km': round(refuel_target_km, 1),
+        'search_radius_km': used_radius_km,
+        'refuel_point': {
+            'lat': round(refuel_lat, 6),
+            'lng': round(refuel_lng, 6),
+        },
+        'stations': stations,
+    }
 
 
 # ─── Bike Trip Form ────────────────────────────────────────────────────────────
@@ -101,12 +256,35 @@ def bike_submit(request):
         'mileage':  mileage,
     })
 
+    # 5. Pre-calculate 70% refuel point & cache nearby petrol pumps in Redis
+    if starting_point and destination_point:
+        try:
+            fuel_stop_data = _compute_refuel_point_and_pumps(
+                starting_point, destination_point, capacity, mileage
+            )
+            save_fuel_stops(trip.id, fuel_stop_data)
+            print(f"[Trip #{trip.id}] Fuel stop data cached in Redis")
+        except Exception as e:
+            print(f"[Trip #{trip.id}] Fuel stop computation failed: {e}")
+
     return redirect('customer_list')
 
 
 def bike_success(request):
     """Display success message after form submission"""
     return render(request, 'bike_success.html')
+
+
+def get_trip_fuel_stops(request, pk):
+    """
+    API endpoint: Return pre-calculated fuel stop data from Redis.
+    Responds instantly (<5ms) since data is pre-cached during trip creation.
+    """
+    trip = get_object_or_404(BikeTrip, pk=pk)
+    fuel_data = get_fuel_stops(trip.pk)
+    if not fuel_data:
+        return JsonResponse({'error': 'No fuel stop data available'}, status=404)
+    return JsonResponse(fuel_data)
 
 
 # ─── Customer Views ────────────────────────────────────────────────────────────

@@ -5,9 +5,12 @@ Centralised Redis helper for the bike app.
 
 Key schema
 ──────────
-  trip:<id>:specs    → Hash  { bikename, capacity, mileage,
-                                fuel_consumed, fuel_cost, total_time }
+  trip:<id>:specs      → Hash  { bikename, capacity, mileage,
+                                  fuel_consumed, fuel_cost, total_time }
+  trip:<id>:fuel_stops  → String (JSON)  Pre-calculated 70% refuel point
+                                         and nearby petrol stations.
 """
+import json
 import redis
 from django.conf import settings
 
@@ -43,6 +46,39 @@ def get_bike_specs(trip_id: int) -> dict:
     return _redis.hgetall(_specs_key(trip_id))
 
 
+# ─── Fuel Stops (pre-calculated 70% refuel point + nearby pumps) ─────────────
+
+def _fuel_stops_key(trip_id: int) -> str:
+    return f"trip:{trip_id}:fuel_stops"
+
+
+def save_fuel_stops(trip_id: int, data: dict) -> None:
+    """
+    Cache the pre-calculated 70% refuel point and nearby petrol stations.
+    Stored as a JSON string (not a hash) because the structure is nested.
+    """
+    key = _fuel_stops_key(trip_id)
+    _redis.set(key, json.dumps(data))
+    _redis.expire(key, SPECS_TTL)
+
+
+def get_fuel_stops(trip_id: int) -> dict:
+    """
+    Retrieve the pre-calculated fuel stops payload from Redis.
+    Returns an empty dict if nothing is cached.
+    """
+    raw = _redis.get(_fuel_stops_key(trip_id))
+    if raw:
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return {}
+
+
+# ─── Cleanup ──────────────────────────────────────────────────────────────────
+
 def delete_bike_specs(trip_id: int) -> None:
-    """Remove the entire hash — called when a trip is deleted."""
+    """Remove all Redis keys for a trip — called when a trip is deleted."""
     _redis.delete(_specs_key(trip_id))
+    _redis.delete(_fuel_stops_key(trip_id))

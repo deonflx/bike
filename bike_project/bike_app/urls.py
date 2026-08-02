@@ -26,4 +26,7 @@ urlpatterns = [
     
     # AI Advisor
     path('customers/<int:pk>/ai-tips/', views.generate_ai_tips, name='generate_ai_tips'),
+
+    # Fuel Stops (pre-cached in Redis)
+    path('customers/<int:pk>/fuel-stops/', views.get_trip_fuel_stops, name='get_trip_fuel_stops'),
 ]

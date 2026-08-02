@@ -63,6 +63,56 @@
             box-shadow: 0 4px 14px rgba(168,85,247,0.35);
         }
         .btn-ai:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(168,85,247,0.45); }
+        .btn-fuel {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff; border: none;
+            box-shadow: 0 4px 14px rgba(16,185,129,0.35);
+        }
+        .btn-fuel:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(16,185,129,0.45); }
+        .btn-fuel:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .btn-fuel.active { background: linear-gradient(135deg, #059669, #047857); box-shadow: 0 0 0 2px rgba(16,185,129,0.5); }
+
+        /* Fuel station markers */
+        .fuel-marker {
+            background: rgba(15,15,26,0.9); border: 1px solid rgba(16,185,129,0.5);
+            border-radius: 10px; padding: 5px 10px; white-space: nowrap;
+            color: #fff; font-family: Inter, sans-serif; backdrop-filter: blur(8px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4); text-align: center;
+        }
+        .fuel-marker-name { font-size: 10px; font-weight: 700; color: #34d399; text-transform: uppercase; letter-spacing: 0.04em; }
+        .fuel-marker-dist { font-size: 11px; color: #94a3b8; margin-top: 1px; }
+        .refuel-marker {
+            width: 20px; height: 20px; border-radius: 50%;
+            background: #f59e0b; border: 3px solid #fff;
+            box-shadow: 0 0 0 6px rgba(245,158,11,0.35), 0 0 20px rgba(245,158,11,0.3);
+            animation: refuel-pulse 2s infinite;
+        }
+        @keyframes refuel-pulse {
+            0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0.5), 0 0 20px rgba(245,158,11,0.3); }
+            70%  { box-shadow: 0 0 0 14px rgba(245,158,11,0), 0 0 20px rgba(245,158,11,0.1); }
+            100% { box-shadow: 0 0 0 0 rgba(245,158,11,0), 0 0 20px rgba(245,158,11,0.3); }
+        }
+
+        /* Fuel info panel */
+        .fuel-panel {
+            position: fixed; top: 72px; right: 16px; z-index: 1100;
+            width: 300px; max-height: calc(100vh - 200px); overflow-y: auto;
+            background: rgba(15,15,26,0.95); backdrop-filter: blur(20px);
+            border: 1px solid rgba(16,185,129,0.3); border-radius: 16px;
+            padding: 16px; opacity: 0; transform: translateY(-10px);
+            transition: opacity 0.3s, transform 0.3s; pointer-events: none;
+        }
+        .fuel-panel.visible { opacity: 1; transform: translateY(0); pointer-events: all; }
+        .fuel-panel h3 { color: #10b981; font-size: 0.9rem; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+        .fp-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.8rem; }
+        .fp-row:last-child { border-bottom: none; }
+        .fp-label { color: #94a3b8; }
+        .fp-value { color: #e2e8f0; font-weight: 600; }
+        .fp-station { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 8px 12px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center; }
+        .fp-station-name { font-size: 0.82rem; font-weight: 600; color: #e2e8f0; }
+        .fp-station-brand { font-size: 0.7rem; color: #64748b; }
+        .fp-station-dist { font-size: 0.72rem; font-weight: 700; color: #34d399; background: rgba(16,185,129,0.12); padding: 2px 8px; border-radius: 12px; }
+        .fp-no-refuel { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 10px; padding: 12px; color: #34d399; font-size: 0.85rem; text-align: center; }
         
         /* ── AI MODAL ── */
         #ai-modal {
@@ -183,6 +233,7 @@
     <div class="topbar-right">
         <a href="{% if view_only %}{% url 'customer_detail' trip.pk %}{% else %}{% url 'customer_detail' session.bike_trip.pk %}{% endif %}" class="btn btn-ghost">← Details</a>
         <button onclick="askAI()" class="btn btn-ai">✨ Ask AI Advisor</button>
+        <button onclick="toggleFuelStops()" class="btn btn-fuel" id="fuel-map-btn">⛽ Fuel Stops</button>
         {% if view_only %}
         <a href="{% url 'start_trip' trip.pk %}" class="btn btn-start-trip">▶ Start Trip</a>
         {% elif session.is_active %}
@@ -200,6 +251,10 @@
     data-is-active="{% if view_only %}false{% else %}{{ session.is_active|yesno:'true,false' }}{% endif %}"
     data-from="{% if view_only %}{{ trip.starting_location|escapejs }}{% else %}{{ session.bike_trip.starting_location|escapejs }}{% endif %}"
     data-to="{% if view_only %}{{ trip.destination_location|escapejs }}{% else %}{{ session.bike_trip.destination_location|escapejs }}{% endif %}"
+    data-start-lat="{% if view_only %}{{ trip.starting_point.y|default:'' }}{% else %}{{ session.bike_trip.starting_point.y|default:'' }}{% endif %}"
+    data-start-lng="{% if view_only %}{{ trip.starting_point.x|default:'' }}{% else %}{{ session.bike_trip.starting_point.x|default:'' }}{% endif %}"
+    data-end-lat="{% if view_only %}{{ trip.destination_point.y|default:'' }}{% else %}{{ session.bike_trip.destination_point.y|default:'' }}{% endif %}"
+    data-end-lng="{% if view_only %}{{ trip.destination_point.x|default:'' }}{% else %}{{ session.bike_trip.destination_point.x|default:'' }}{% endif %}"
     data-saved-lat="{% if view_only %}{% else %}{{ session.current_lat|default:'' }}{% endif %}"
     data-saved-lng="{% if view_only %}{% else %}{{ session.current_lng|default:'' }}{% endif %}"
     data-update-url="{% if view_only %}{% else %}{% url 'update_location' session.pk %}{% endif %}"
@@ -214,6 +269,9 @@
     </div>
     <div class="ai-content" id="ai-content"></div>
 </div>
+
+<!-- FUEL PANEL -->
+<div class="fuel-panel" id="fuel-panel"></div>
 
 <!-- STATUS TOAST -->
 <div class="toast" id="toast">{% if view_only %}🌍 Loading route…{% else %}📡 Acquiring GPS signal…{% endif %}</div>
@@ -260,6 +318,11 @@ const SESSION_PK   = _map_el.dataset.sessionPk   || null;
 const IS_ACTIVE    = _map_el.dataset.isActive === 'true';
 const FROM_TEXT    = _map_el.dataset.from   || '';
 const TO_TEXT      = _map_el.dataset.to     || '';
+// Pre-stored PostGIS coordinates (avoids re-geocoding)
+const DB_START_LAT = _map_el.dataset.startLat ? parseFloat(_map_el.dataset.startLat) : null;
+const DB_START_LNG = _map_el.dataset.startLng ? parseFloat(_map_el.dataset.startLng) : null;
+const DB_END_LAT   = _map_el.dataset.endLat   ? parseFloat(_map_el.dataset.endLat)   : null;
+const DB_END_LNG   = _map_el.dataset.endLng   ? parseFloat(_map_el.dataset.endLng)   : null;
 const SAVED_LAT    = _map_el.dataset.savedLat  ? parseFloat(_map_el.dataset.savedLat)  : null;
 const SAVED_LNG    = _map_el.dataset.savedLng  ? parseFloat(_map_el.dataset.savedLng)  : null;
 const UPDATE_URL   = _map_el.dataset.updateUrl  || '';
@@ -498,6 +561,106 @@ let routeDistanceKm = 0; // Stored from drawRoute
 let routeDurationMins = 0; // Stored from drawRoute
 let currentWeatherData = []; // Stored from showRouteWeather
 
+// ── Fuel Stops on Map ────────────────────────────────────────────────────────
+let fuelMarkersLayer = [];
+let fuelPanelVisible = false;
+
+async function toggleFuelStops() {
+    const btn = document.getElementById('fuel-map-btn');
+    const panel = document.getElementById('fuel-panel');
+
+    if (fuelPanelVisible) {
+        // Hide fuel markers and panel
+        fuelMarkersLayer.forEach(m => map.removeLayer(m));
+        fuelMarkersLayer = [];
+        panel.classList.remove('visible');
+        btn.classList.remove('active');
+        btn.innerHTML = '⛽ Fuel Stops';
+        fuelPanelVisible = false;
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '⛽ Loading…';
+
+    try {
+        const tripPk = parseInt(document.getElementById('map').dataset.tripPk, 10);
+        const res = await fetch(`/customers/${tripPk}/fuel-stops/`);
+        const data = await res.json();
+
+        if (data.error) {
+            panel.innerHTML = `<h3>⛽ Fuel Stops</h3><div style="color:#f87171;font-size:0.85rem;">⚠️ ${data.error}</div>`;
+            panel.classList.add('visible');
+            btn.disabled = false;
+            btn.innerHTML = '⛽ Fuel Stops';
+            fuelPanelVisible = true;
+            return;
+        }
+
+        if (data.needed === false) {
+            panel.innerHTML = `<h3>⛽ Fuel Stops</h3><div class="fp-no-refuel">✅ No refueling needed!<br><span style="font-size:0.78rem;color:#6ee7b7;">${data.reason}</span></div>`;
+            panel.classList.add('visible');
+            btn.classList.add('active');
+            btn.disabled = false;
+            btn.innerHTML = '⛽ No Refuel';
+            fuelPanelVisible = true;
+            return;
+        }
+
+        // Add refuel point marker
+        const refuelMarker = L.marker([data.refuel_point.lat, data.refuel_point.lng], {
+            icon: L.divIcon({
+                html: '<div class="refuel-marker"></div>',
+                className: '', iconSize: [20, 20], iconAnchor: [10, 10]
+            })
+        }).addTo(map).bindPopup(`<b>🔶 Recommended Refuel Point</b><br>At ${data.refuel_distance_km} km into your trip`);
+        fuelMarkersLayer.push(refuelMarker);
+
+        // Add station markers
+        if (data.stations) {
+            data.stations.forEach(s => {
+                const m = L.marker([s.lat, s.lng], {
+                    icon: L.divIcon({
+                        html: `<div class="fuel-marker"><div class="fuel-marker-name">⛽ ${s.name}</div><div class="fuel-marker-dist">${s.distance_km} km</div></div>`,
+                        className: '', iconAnchor: [50, 40]
+                    })
+                }).addTo(map).bindPopup(`<b>⛽ ${s.name}</b><br>Brand: ${s.brand}<br>Distance from refuel point: ${s.distance_km} km`);
+                fuelMarkersLayer.push(m);
+            });
+        }
+
+        // Build panel HTML
+        let panelHtml = `<h3>⛽ Fuel Stops</h3>`;
+        panelHtml += `<div class="fp-row"><span class="fp-label">Route Distance</span><span class="fp-value">${data.total_distance_km} km</span></div>`;
+        panelHtml += `<div class="fp-row"><span class="fp-label">Max Range</span><span class="fp-value">${data.max_range_km} km</span></div>`;
+        panelHtml += `<div class="fp-row"><span class="fp-label">Refuel At</span><span class="fp-value" style="color:#f59e0b;">${data.refuel_distance_km} km</span></div>`;
+        panelHtml += `<div class="fp-row"><span class="fp-label">Search Radius</span><span class="fp-value">${data.search_radius_km} km</span></div>`;
+
+        if (data.stations && data.stations.length > 0) {
+            panelHtml += `<div style="font-size:0.72rem;color:#64748b;margin-top:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;">⛽ ${data.stations.length} Found (${data.search_radius_km} km)</div>`;
+            data.stations.forEach(s => {
+                panelHtml += `<div class="fp-station"><div><div class="fp-station-name">${s.name}</div><div class="fp-station-brand">${s.brand}</div></div><div class="fp-station-dist">${s.distance_km} km</div></div>`;
+            });
+        }
+
+        panel.innerHTML = panelHtml;
+        panel.classList.add('visible');
+        btn.classList.add('active');
+        btn.disabled = false;
+        btn.innerHTML = '⛽ Fuel Stops';
+        fuelPanelVisible = true;
+
+        // Pan map to show refuel point
+        map.panTo([data.refuel_point.lat, data.refuel_point.lng], { animate: true });
+    } catch(e) {
+        panel.innerHTML = `<h3>⛽ Fuel Stops</h3><div style="color:#f87171;font-size:0.85rem;">❌ ${e.message}</div>`;
+        panel.classList.add('visible');
+        btn.disabled = false;
+        btn.innerHTML = '⛽ Fuel Stops';
+        fuelPanelVisible = true;
+    }
+}
+
 async function askAI() {
     const modal = document.getElementById('ai-modal');
     const content = document.getElementById('ai-content');
@@ -597,10 +760,21 @@ setInterval(() => {
 (async () => {
     showToast('🌍 Locating start & destination…', false);
 
-    // Geocode with a small delay to respect Nominatim rate limit
-    startCoords = await geocode(FROM_TEXT);
-    await new Promise(r => setTimeout(r, 1100));
-    endCoords   = await geocode(TO_TEXT);
+    // Use stored PostGIS coordinates if available, fallback to geocoding
+    if (DB_START_LAT && DB_START_LNG) {
+        startCoords = [DB_START_LAT, DB_START_LNG];
+    } else {
+        startCoords = await geocode(FROM_TEXT);
+        await new Promise(r => setTimeout(r, 1100));
+    }
+
+    if (DB_END_LAT && DB_END_LNG) {
+        endCoords = [DB_END_LAT, DB_END_LNG];
+    } else {
+        // Only delay if we didn't delay above
+        if (DB_START_LAT && DB_START_LNG) await new Promise(r => setTimeout(r, 1100));
+        endCoords = await geocode(TO_TEXT);
+    }
 
     if (startCoords) {
         startMarker = L.marker(startCoords, { icon: makeStartIcon() })

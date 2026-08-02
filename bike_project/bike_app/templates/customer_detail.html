@@ -205,6 +205,61 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         
         .ai-content b { color: #fff; }
+
+        /* Fuel Stations Card */
+        .fuel-card {
+            background: linear-gradient(135deg, #0f1a17, #12201a);
+            border: 1px solid rgba(16,185,129,0.3);
+            border-radius: 20px; padding: 24px;
+            margin-bottom: 24px;
+        }
+        .fuel-card h2 {
+            color: #10b981; font-size: 1.2rem; margin-bottom: 16px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .btn-fuel {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff; border: none; padding: 10px 22px;
+            border-radius: 10px; font-size: 0.85rem; font-weight: 600;
+            cursor: pointer; font-family: inherit;
+            box-shadow: 0 4px 14px rgba(16,185,129,0.35);
+            transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px;
+        }
+        .btn-fuel:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(16,185,129,0.45); }
+        .btn-fuel:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+        .fuel-info {
+            background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2);
+            border-radius: 14px; padding: 16px 20px; margin-top: 16px;
+        }
+        .fuel-info-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .fuel-info-row:last-child { border-bottom: none; }
+        .fuel-info-label { font-size: 0.82rem; color: #94a3b8; }
+        .fuel-info-value { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; }
+        .fuel-not-needed {
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25);
+            border-radius: 12px; padding: 14px 20px; margin-top: 16px;
+            color: #34d399; font-size: 0.9rem; font-weight: 500;
+        }
+        .station-list { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+        .station-item {
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px; padding: 14px 18px;
+            display: flex; align-items: center; justify-content: space-between;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+        .station-item:hover { border-color: rgba(16,185,129,0.3); transform: translateY(-1px); }
+        .station-name { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; }
+        .station-brand { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+        .station-dist {
+            background: rgba(16,185,129,0.12); color: #34d399;
+            padding: 4px 12px; border-radius: 20px;
+            font-size: 0.78rem; font-weight: 700; white-space: nowrap;
+        }
+        .fuel-error { color: #f87171; font-size: 0.85rem; margin-top: 12px; }
     </style>
 </head>
 <body>
@@ -329,6 +384,16 @@ document.getElementById('deleteModal').addEventListener('click', function(e) {
         </div>
     </div>
 
+    <!-- Fuel Stations -->
+    <div class="fuel-card">
+        <h2>⛽ Nearby Fuel Stations</h2>
+        <p style="font-size:0.85rem; color:#94a3b8; margin-bottom:16px;">Find petrol pumps along your route at the optimal 70% fuel range refueling point.</p>
+        <button class="btn-fuel" id="fuel-btn" onclick="loadFuelStops()">
+            🔍 Find Fuel Stations
+        </button>
+        <div id="fuel-results"></div>
+    </div>
+
     <!-- Specs -->
     <div class="specs-grid">
         <div class="spec-card">
@@ -404,6 +469,91 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('ai-summary-content').innerHTML = `<span style="color:#ef4444;">Failed to load summary.</span>`;
     }
 });
+
+async function loadFuelStops() {
+    const btn = document.getElementById('fuel-btn');
+    const results = document.getElementById('fuel-results');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div> Searching…';
+    results.innerHTML = '';
+
+    try {
+        const res = await fetch(`/customers/{{ trip.pk }}/fuel-stops/`);
+        const data = await res.json();
+
+        if (data.error) {
+            results.innerHTML = `<div class="fuel-error">⚠️ ${data.error}</div>`;
+            btn.disabled = false;
+            btn.innerHTML = '🔍 Find Fuel Stations';
+            return;
+        }
+
+        if (data.needed === false) {
+            results.innerHTML = `
+                <div class="fuel-not-needed">
+                    <span style="font-size:1.4rem;">✅</span>
+                    <div>
+                        <div style="font-weight:600;">No refueling needed!</div>
+                        <div style="font-size:0.82rem; color:#6ee7b7; margin-top:2px;">${data.reason}</div>
+                    </div>
+                </div>
+            `;
+            btn.innerHTML = '✅ No Refuel Needed';
+            return;
+        }
+
+        let html = `
+            <div class="fuel-info">
+                <div class="fuel-info-row">
+                    <span class="fuel-info-label">Total Route Distance</span>
+                    <span class="fuel-info-value">${data.total_distance_km} km</span>
+                </div>
+                <div class="fuel-info-row">
+                    <span class="fuel-info-label">Max Range (Full Tank)</span>
+                    <span class="fuel-info-value">${data.max_range_km} km</span>
+                </div>
+                <div class="fuel-info-row">
+                    <span class="fuel-info-label">Recommended Refuel At</span>
+                    <span class="fuel-info-value" style="color:#34d399;">${data.refuel_distance_km} km</span>
+                </div>
+                <div class="fuel-info-row">
+                    <span class="fuel-info-label">Search Radius</span>
+                    <span class="fuel-info-value">${data.search_radius_km} km</span>
+                </div>
+                <div class="fuel-info-row">
+                    <span class="fuel-info-label">Refuel Point (GPS)</span>
+                    <span class="fuel-info-value" style="font-size:0.82rem;">${data.refuel_point.lat}, ${data.refuel_point.lng}</span>
+                </div>
+            </div>
+        `;
+
+        if (data.stations && data.stations.length > 0) {
+            html += `<div style="font-size:0.78rem; color:#64748b; margin-top:16px; text-transform:uppercase; letter-spacing:0.1em; font-weight:600;">⛽ ${data.stations.length} Stations Found (within ${data.search_radius_km} km)</div>`;
+            html += '<div class="station-list">';
+            data.stations.forEach((s, i) => {
+                html += `
+                    <div class="station-item">
+                        <div>
+                            <div class="station-name">${i + 1}. ${s.name}</div>
+                            <div class="station-brand">${s.brand}</div>
+                        </div>
+                        <div class="station-dist">${s.distance_km} km away</div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+        } else {
+            html += '<div style="color:#fbbf24; margin-top:14px; font-size:0.85rem;">⚠️ No petrol pumps found within 2 km of the refuel point.</div>';
+        }
+
+        results.innerHTML = html;
+        btn.innerHTML = '⛽ Stations Loaded';
+    } catch(e) {
+        results.innerHTML = `<div class="fuel-error">❌ Failed to load fuel data: ${e.message}</div>`;
+        btn.disabled = false;
+        btn.innerHTML = '🔍 Find Fuel Stations';
+    }
+}
 </script>
 
 </body>
