@@ -9,6 +9,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 from django.contrib.gis.geos import Point
+from django.contrib.gis.measure import D
+from django.db.models import Q
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -321,12 +323,50 @@ def customer_detail(request, pk):
     active_session = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_ACTIVE).first()
     past_sessions  = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_COMPLETED)
 
+    # ── Co-travelers heading to the same destination ───────────
+    dest_name = (trip.destination_name or '').strip()
+    dest_city = dest_name.split(',')[0].strip() if dest_name else ''
+    co_query = BikeTrip.objects.exclude(pk=trip.pk)
+
+    co_travelers = []
+    try:
+        if trip.destination_point and dest_city:
+            co_travelers = list(co_query.filter(
+                Q(destination_point__distance_lte=(trip.destination_point, D(km=30))) |
+                Q(destination_name__icontains=dest_city)
+            ).distinct())
+        elif trip.destination_point:
+            co_travelers = list(co_query.filter(
+                destination_point__distance_lte=(trip.destination_point, D(km=30))
+            ).distinct())
+        elif dest_city:
+            co_travelers = list(co_query.filter(destination_name__icontains=dest_city).distinct())
+    except Exception as e:
+        print(f"Error querying co-travelers: {e}")
+        if dest_city:
+            co_travelers = list(co_query.filter(destination_name__icontains=dest_city).distinct())
+
+    # Attach live active session & specs for each co-traveler
+    if co_travelers:
+        active_co_sessions = {
+            s.bike_trip_id: s
+            for s in TripSession.objects.filter(
+                bike_trip__in=co_travelers, status=TripSession.STATUS_ACTIVE
+            ).select_related('bike_trip')
+        }
+        for rider in co_travelers:
+            rider.active_session = active_co_sessions.get(rider.pk)
+            specs = get_bike_specs(rider.pk)
+            rider.redis_capacity = specs.get('capacity', '—')
+            rider.redis_mileage  = specs.get('mileage',  '—')
+
     return render(request, 'customer_detail.html', {
         'trip':            trip,
         'bike_specs':      bike_specs,
         'estimated_range': estimated_range,
         'active_session':  active_session,
         'past_sessions':   past_sessions,
+        'co_travelers':    co_travelers,
     })
 
 
