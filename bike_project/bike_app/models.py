@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.gis.db import models as gis_models
+from django.contrib.auth.models import User
 
 
 class BikeTrip(models.Model):
@@ -7,6 +8,7 @@ class BikeTrip(models.Model):
     Stores route/spatial data in PostGIS.
     Bike specs (capacity, mileage) live in Redis under key trip:<id>:specs.
     """
+    user                 = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trips', null=True, blank=True)
     bikename             = models.CharField(max_length=100)
 
     # Human-readable location labels

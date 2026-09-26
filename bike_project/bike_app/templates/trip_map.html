@@ -259,6 +259,7 @@
     data-saved-lng="{% if view_only %}{% else %}{{ session.current_lng|default:'' }}{% endif %}"
     data-update-url="{% if view_only %}{% else %}{% url 'update_location' session.pk %}{% endif %}"
     data-csrf="{{ csrf_token }}"
+    data-carto-key="{{ carto_api_key|default:'' }}"
 ></div>
 
 <!-- AI MODAL -->
@@ -329,11 +330,28 @@ const UPDATE_URL   = _map_el.dataset.updateUrl  || '';
 const CSRF_TOKEN   = _map_el.dataset.csrf        || '';
 const BACK_PK      = parseInt(_map_el.dataset.tripPk, 10);
 
+const CARTO_KEY    = _map_el.dataset.cartoKey ? `?key=${_map_el.dataset.cartoKey}` : '';
+
 // ── Map init ─────────────────────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([20.5937, 78.9629], 5);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors', maxZoom: 19
+
+// Compliant CARTO tiles (uses CARTO_API_KEY from .env if present)
+const darkLayer = L.tileLayer(`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${CARTO_KEY}`, {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 20
 }).addTo(map);
+
+const streetLayer = L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png${CARTO_KEY}`, {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 20
+});
+
+L.control.layers({
+    "🌙 Dark Map": darkLayer,
+    "☀️ Street Map": streetLayer
+}, null, { position: 'topright' }).addTo(map);
 
 // ── Marker factories ─────────────────────────────────────────────────────────
 function makeStartIcon() {

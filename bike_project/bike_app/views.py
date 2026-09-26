@@ -10,7 +10,11 @@ from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 from django.contrib.gis.geos import Point
 from django.contrib.gis.measure import D
+from django.contrib.gis.db.models.functions import Distance
 from django.db.models import Q
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
+from django.contrib.auth.decorators import login_required
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -34,7 +38,7 @@ def _geocode(place_name: str):
         r = http_requests.get(
             'https://nominatim.openstreetmap.org/search',
             params={'q': place_name, 'format': 'json', 'limit': 1, 'countrycodes': 'in'},
-            headers={'User-Agent': 'BikeApp/1.0'},
+            headers={'User-Agent': 'BikeTripRoutingApp/1.0 (contact: admin@bikerouteapp.com)'},
             timeout=5
         )
         results = r.json()
@@ -244,6 +248,7 @@ def bike_submit(request):
 
     # 3. Save slim trip to PostGIS (location only)
     trip = BikeTrip.objects.create(
+        user              = request.user if request.user.is_authenticated else None,
         bikename          = bikename,
         starting_name     = starting_name,
         destination_name  = destination_name,
@@ -289,11 +294,64 @@ def get_trip_fuel_stops(request, pk):
     return JsonResponse(fuel_data)
 
 
+# ─── Authentication Views ───────────────────────────────────────────────────────
+
+def register_view(request):
+    """User registration page"""
+    if request.user.is_authenticated:
+        return redirect('customer_list')
+    if request.method == 'POST':
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            return redirect('customer_list')
+    else:
+        form = UserCreationForm()
+    return render(request, 'register.html', {'form': form})
+
+
+def login_view(request):
+    """User login page"""
+    if request.user.is_authenticated:
+        return redirect('customer_list')
+    error_message = None
+    if request.method == 'POST':
+        form = AuthenticationForm(request, data=request.POST)
+        if form.is_valid():
+            user = form.get_user()
+            login(request, user)
+            return redirect('customer_list')
+        else:
+            error_message = "Invalid username or password. Please try again."
+    else:
+        form = AuthenticationForm()
+    return render(request, 'login.html', {'form': form, 'error_message': error_message})
+
+
+def logout_view(request):
+    """Log out user and redirect to login"""
+    logout(request)
+    return redirect('login')
+
+
 # ─── Customer Views ────────────────────────────────────────────────────────────
 
 def customer_list(request):
-    """Home page — all bike trip records"""
-    trips = BikeTrip.objects.all()
+    """Home page — user trips vs community trips"""
+    if not request.user.is_authenticated:
+        return redirect('login')
+
+    tab = request.GET.get('tab', 'my')  # 'my' = logged-in user trips, 'all' = community trips
+    if tab == 'all':
+        trips_qs = BikeTrip.objects.all().select_related('user')
+    else:
+        trips_qs = BikeTrip.objects.filter(user=request.user).select_related('user')
+
+    my_count = BikeTrip.objects.filter(user=request.user).count()
+    all_count = BikeTrip.objects.count()
+
+    trips = list(trips_qs)
     active_sessions = {
         s.bike_trip.pk: s
         for s in TripSession.objects.filter(status=TripSession.STATUS_ACTIVE).select_related('bike_trip')
@@ -306,6 +364,9 @@ def customer_list(request):
         trip.redis_mileage  = specs.get('mileage',  '—')   # type: ignore[attr-defined]
     return render(request, 'customer_list.html', {
         'trips': trips,
+        'tab': tab,
+        'my_count': my_count,
+        'all_count': all_count,
         'active_count': len(active_sessions),
     })
 
@@ -323,28 +384,37 @@ def customer_detail(request, pk):
     active_session = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_ACTIVE).first()
     past_sessions  = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_COMPLETED)
 
-    # ── Co-travelers heading to the same destination ───────────
-    dest_name = (trip.destination_name or '').strip()
-    dest_city = dest_name.split(',')[0].strip() if dest_name else ''
+    # ── PostGIS 5 km Radius Destination Comparison ───────────
     co_query = BikeTrip.objects.exclude(pk=trip.pk)
-
     co_travelers = []
-    try:
-        if trip.destination_point and dest_city:
-            co_travelers = list(co_query.filter(
-                Q(destination_point__distance_lte=(trip.destination_point, D(km=30))) |
-                Q(destination_name__icontains=dest_city)
-            ).distinct())
-        elif trip.destination_point:
-            co_travelers = list(co_query.filter(
-                destination_point__distance_lte=(trip.destination_point, D(km=30))
-            ).distinct())
-        elif dest_city:
-            co_travelers = list(co_query.filter(destination_name__icontains=dest_city).distinct())
-    except Exception as e:
-        print(f"Error querying co-travelers: {e}")
+
+    if trip.destination_point:
+        try:
+            # Query destinations within 5 km using PostGIS ST_DistanceSphere
+            co_travelers = list(
+                co_query.filter(
+                    destination_point__isnull=False,
+                    destination_point__distance_lte=(trip.destination_point, D(km=5))
+                )
+                .annotate(dest_distance=Distance('destination_point', trip.destination_point))
+                .order_by('dest_distance')
+            )
+            # Format distance for display
+            for rider in co_travelers:
+                if hasattr(rider, 'dest_distance') and rider.dest_distance:
+                    km_val = rider.dest_distance.km
+                    rider.formatted_dist = f"{km_val:.2f} km" if km_val >= 1.0 else f"{rider.dest_distance.m:.0f} m"
+                else:
+                    rider.formatted_dist = "< 5 km"
+        except Exception as e:
+            print(f"PostGIS 5km query failed: {e}")
+    else:
+        # Fallback if geocoding coordinates are not available
+        dest_city = (trip.destination_name or '').split(',')[0].strip()
         if dest_city:
-            co_travelers = list(co_query.filter(destination_name__icontains=dest_city).distinct())
+            co_travelers = list(co_query.filter(destination_name__icontains=dest_city))
+            for rider in co_travelers:
+                rider.formatted_dist = "Same City"
 
     # Attach live active session & specs for each co-traveler
     if co_travelers:
@@ -379,6 +449,7 @@ def view_route(request, pk):
         'trip': trip,
         'session': None,
         'view_only': True,
+        'carto_api_key': os.environ.get('CARTO_API_KEY', ''),
     })
 
 
@@ -394,7 +465,10 @@ def start_trip(request, pk):
 def trip_map(request, session_pk):
     """Live map page for a trip session"""
     session = get_object_or_404(TripSession, pk=session_pk)
-    return render(request, 'trip_map.html', {'session': session})
+    return render(request, 'trip_map.html', {
+        'session': session,
+        'carto_api_key': os.environ.get('CARTO_API_KEY', ''),
+    })
 
 
 @csrf_exempt

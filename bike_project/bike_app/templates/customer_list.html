@@ -252,9 +252,19 @@
             <div class="header-sub">Customer Records Dashboard</div>
         </div>
     </div>
-    <button class="btn btn-primary" id="openDrawerBtn" onclick="openDrawer()">
-        <span>＋</span> New Trip
-    </button>
+    <div style="display:flex; align-items:center; gap:12px;">
+        {% if request.user.is_authenticated %}
+        <span style="font-size:0.85rem; color:#cbd5e1; background:rgba(255,255,255,0.06); padding:6px 12px; border-radius:10px; border:1px solid var(--border);">
+            👤 <strong>{{ request.user.username }}</strong>
+        </span>
+        <a href="{% url 'logout' %}" class="btn btn-ghost" style="padding:7px 14px; font-size:0.8rem;">
+            Logout ↪
+        </a>
+        {% endif %}
+        <button class="btn btn-primary" id="openDrawerBtn" onclick="openDrawer()">
+            <span>＋</span> New Trip
+        </button>
+    </div>
 </header>
 
 <!-- ── MAIN ── -->
@@ -294,11 +304,21 @@
     </div>
     {% endif %}
 
+    <!-- Tabs for user trips vs all community trips -->
+    <div style="display:flex; gap:10px; margin-bottom:20px;">
+        <a href="?tab=my" class="btn {% if tab != 'all' %}btn-primary{% else %}btn-ghost{% endif %}" style="border-radius:12px; padding:10px 20px;">
+            🏍️ My Trips ({{ my_count }})
+        </a>
+        <a href="?tab=all" class="btn {% if tab == 'all' %}btn-primary{% else %}btn-ghost{% endif %}" style="border-radius:12px; padding:10px 20px;">
+            🌍 All Community Trips ({{ all_count }})
+        </a>
+    </div>
+
     <!-- Toolbar -->
     <div class="toolbar">
         <div class="search-box">
             <span class="search-ico">🔍</span>
-            <input type="text" id="searchInput" placeholder="Search by bike name or location…" oninput="filterTable()">
+            <input type="text" id="searchInput" placeholder="Search by bike name, rider, or location…" oninput="filterTable()">
         </div>
     </div>
 
@@ -309,6 +329,7 @@
             <thead>
                 <tr>
                     <th>#</th>
+                    <th>Rider</th>
                     <th>Bike Name</th>
                     <th>From</th>
                     <th>To</th>
@@ -322,6 +343,11 @@
                 {% for trip in trips %}
                 <tr onclick="window.location='{% url 'customer_detail' trip.pk %}'">
                     <td><span class="id-badge">#{{ trip.pk }}</span></td>
+                    <td>
+                        <span style="color:#a5b4fc; font-weight:600; font-size:0.78rem; background:rgba(99,102,241,0.15); padding:3px 8px; border-radius:6px; border:1px solid rgba(99,102,241,0.25);">
+                            👤 @{{ trip.user.username|default:"Anonymous" }}
+                        </span>
+                    </td>
                     <td>
                         <span class="bike-name">{{ trip.bikename }}</span>
                         {% if trip.active_session %}
