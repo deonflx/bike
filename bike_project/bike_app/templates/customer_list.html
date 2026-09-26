@@ -252,9 +252,19 @@
             <div class="header-sub">Customer Records Dashboard</div>
         </div>
     </div>
-    <button class="btn btn-primary" id="openDrawerBtn" onclick="openDrawer()">
-        <span>＋</span> New Trip
-    </button>
+    <div style="display:flex; align-items:center; gap:12px;">
+        {% if request.user.is_authenticated %}
+        <span style="font-size:0.85rem; color:#cbd5e1; background:rgba(255,255,255,0.06); padding:6px 12px; border-radius:10px; border:1px solid var(--border);">
+            👤 <strong>{{ request.user.username }}</strong>
+        </span>
+        <a href="{% url 'logout' %}" class="btn btn-ghost" style="padding:7px 14px; font-size:0.8rem;">
+            Logout ↪
+        </a>
+        {% endif %}
+        <button class="btn btn-primary" id="openDrawerBtn" onclick="openDrawer()">
+            <span>＋</span> New Trip
+        </button>
+    </div>
 </header>
 
 <!-- ── MAIN ── -->
@@ -294,11 +304,21 @@
     </div>
     {% endif %}
 
+    <!-- Tabs for user trips vs all community trips -->
+    <div style="display:flex; gap:10px; margin-bottom:20px;">
+        <a href="?tab=my" class="btn {% if tab != 'all' %}btn-primary{% else %}btn-ghost{% endif %}" style="border-radius:12px; padding:10px 20px;">
+            🏍️ My Trips ({{ my_count }})
+        </a>
+        <a href="?tab=all" class="btn {% if tab == 'all' %}btn-primary{% else %}btn-ghost{% endif %}" style="border-radius:12px; padding:10px 20px;">
+            🌍 All Community Trips ({{ all_count }})
+        </a>
+    </div>
+
     <!-- Toolbar -->
     <div class="toolbar">
         <div class="search-box">
             <span class="search-ico">🔍</span>
-            <input type="text" id="searchInput" placeholder="Search by bike name or location…" oninput="filterTable()">
+            <input type="text" id="searchInput" placeholder="Search by bike name, rider, or location…" oninput="filterTable()">
         </div>
     </div>
 
@@ -309,6 +329,7 @@
             <thead>
                 <tr>
                     <th>#</th>
+                    <th>Rider</th>
                     <th>Bike Name</th>
                     <th>From</th>
                     <th>To</th>
@@ -323,6 +344,11 @@
                 <tr onclick="window.location='{% url 'customer_detail' trip.pk %}'">
                     <td><span class="id-badge">#{{ trip.pk }}</span></td>
                     <td>
+                        <span style="color:#a5b4fc; font-weight:600; font-size:0.78rem; background:rgba(99,102,241,0.15); padding:3px 8px; border-radius:6px; border:1px solid rgba(99,102,241,0.25);">
+                            👤 @{{ trip.user.username|default:"Anonymous" }}
+                        </span>
+                    </td>
+                    <td>
                         <span class="bike-name">{{ trip.bikename }}</span>
                         {% if trip.active_session %}
                         <span class="pill pill-red" style="margin-left:6px; font-size:0.68rem;">
@@ -330,10 +356,10 @@
                         </span>
                         {% endif %}
                     </td>
-                    <td><span class="loc-text" title="{{ trip.starting_location }}">{{ trip.starting_location }}</span></td>
-                    <td><span class="loc-text" title="{{ trip.destination_location }}">{{ trip.destination_location }}</span></td>
-                    <td><span class="pill pill-blue">⛽ {{ trip.fueltank_capacity }}L</span></td>
-                    <td><span class="pill pill-green">🛣️ {{ trip.average_mileage }}</span></td>
+                    <td><span class="loc-text" title="{{ trip.starting_name }}">{{ trip.starting_name }}</span></td>
+                    <td><span class="loc-text" title="{{ trip.destination_name }}">{{ trip.destination_name }}</span></td>
+                    <td><span class="pill pill-blue">⛽ {{ trip.redis_capacity }}L</span></td>
+                    <td><span class="pill pill-green">🛣️ {{ trip.redis_mileage }}</span></td>
                     <td>{{ trip.created_at|date:"d M Y" }}</td>
                     <td>
                         {% if trip.active_session %}
@@ -386,21 +412,6 @@
                     <input type="text" id="bikename" name="bikename"
                            placeholder="e.g. Royal Enfield Himalayan" required>
                 </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="fueltank_capacity">Fuel Tank (Liters)</label>
-                        <input type="number" id="fueltank_capacity" name="fueltank_capacity"
-                               placeholder="e.g. 15.0" step="0.1" min="0.1" required>
-                        <div class="input-hint">Total tank capacity in litres</div>
-                    </div>
-                    <div class="form-group">
-                        <label for="average_mileage">Mileage (km/L)</label>
-                        <input type="number" id="average_mileage" name="average_mileage"
-                               placeholder="e.g. 35.5" step="0.1" min="0.1" required>
-                        <div class="input-hint">Average kilometres per litre</div>
-                    </div>
-                </div>
             </div>
 
             <!-- Route Info -->
@@ -417,18 +428,6 @@
                     <label for="destination_location">Destination</label>
                     <textarea id="destination_location" name="destination_location"
                               placeholder="e.g. Pune, Maharashtra" required></textarea>
-                </div>
-            </div>
-
-            <!-- Range Preview -->
-            <div class="form-section">
-                <div class="form-section-title">Estimated Range</div>
-                <div class="stat" style="background: rgba(16,185,129,0.07); border-color: rgba(16,185,129,0.2);">
-                    <div class="stat-ico ico-green">📏</div>
-                    <div>
-                        <div class="stat-val" id="rangePreview" style="color:#34d399;">—</div>
-                        <div class="stat-lbl">km on a full tank</div>
-                    </div>
                 </div>
             </div>
 
@@ -458,16 +457,6 @@
     }
     // Close on Escape
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
-
-    // ── Live range calculator ──
-    function calcRange() {
-        const tank    = parseFloat(document.getElementById('fueltank_capacity').value) || 0;
-        const mileage = parseFloat(document.getElementById('average_mileage').value)   || 0;
-        const range   = tank * mileage;
-        document.getElementById('rangePreview').textContent = range > 0 ? range.toFixed(0) : '—';
-    }
-    document.getElementById('fueltank_capacity').addEventListener('input', calcRange);
-    document.getElementById('average_mileage').addEventListener('input', calcRange);
 
     // ── Table search ──
     function filterTable() {

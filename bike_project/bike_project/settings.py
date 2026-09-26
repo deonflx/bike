@@ -12,6 +12,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -42,7 +45,7 @@ SECRET_KEY = 'django-insecure-q*4rzi)x17^+wtk!o(dsz0p!u6v7u*feyy!1orrurar$rlr3bn
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -91,16 +94,28 @@ WSGI_APPLICATION = 'bike_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+DB_NAME     = os.environ.get('DB_NAME', 'postgres')
+DB_USER     = os.environ.get('DB_USER', 'postgres.ktwhbrsgumuxypxtcwwa')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', 'deonnjr@200')
+DB_HOST     = os.environ.get('DB_HOST', 'aws-0-ap-northeast-2.pooler.supabase.com')
+DB_PORT     = os.environ.get('DB_PORT', '5432')
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.contrib.gis.db.backends.postgis',
-        'NAME': 'gisdb',
-        'USER': 'postgres',
-        'PASSWORD': '9f324689154c4a17b3b2151126d073e4',
-        'HOST': 'localhost',
-        'PORT': '5433',
+        'NAME': DB_NAME,
+        'USER': DB_USER,
+        'PASSWORD': DB_PASSWORD,
+        'HOST': DB_HOST,
+        'PORT': DB_PORT,
+        'OPTIONS': {
+            'sslmode': 'require',
+        } if DB_HOST != 'localhost' else {},
     }
 }
+
+# Redis (bike specs cache)
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
 
 
 # Password validation
@@ -143,3 +158,6 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'customer_list'

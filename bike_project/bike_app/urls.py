@@ -3,6 +3,11 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Auth
+    path('register/', views.register_view, name='register'),
+    path('login/', views.login_view, name='login'),
+    path('logout/', views.logout_view, name='logout'),
+
     # Home / list
     path('', views.customer_list, name='customer_list'),
 
@@ -13,6 +18,7 @@ urlpatterns = [
 
     # Customer detail
     path('customers/<int:pk>/', views.customer_detail, name='customer_detail'),
+    path('customers/<int:pk>/summary/', views.generate_customer_summary, name='customer_summary'),
     path('customers/<int:pk>/route/', views.view_route, name='view_route'),
     path('customers/<int:pk>/delete/', views.delete_trip, name='delete_trip'),
 
@@ -22,4 +28,10 @@ urlpatterns = [
     path('session/<int:session_pk>/update/', views.update_location, name='update_location'),
     path('session/<int:session_pk>/data/', views.session_data, name='session_data'),
     path('session/<int:session_pk>/end/', views.end_trip, name='end_trip'),
+    
+    # AI Advisor
+    path('customers/<int:pk>/ai-tips/', views.generate_ai_tips, name='generate_ai_tips'),
+
+    # Fuel Stops (pre-cached in Redis)
+    path('customers/<int:pk>/fuel-stops/', views.get_trip_fuel_stops, name='get_trip_fuel_stops'),
 ]
