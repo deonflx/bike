@@ -1,0 +1,52 @@
+# render.yaml — Render Blueprint
+# Push to GitHub and connect to Render for automatic deploys
+# https://docs.render.com/blueprint-spec
+
+services:
+  # ── Django Web Service ──────────────────────────────────────────────────────
+  - type: web
+    name: bike-project
+    runtime: python
+    region: singapore       # closest to India
+    plan: starter           # $7/mo (always-on), or use 'free' for testing
+    rootDir: bike_project
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn bike_project.wsgi:application --bind 0.0.0.0:$PORT --workers 3"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: SECRET_KEY
+        generateValue: true   # Render auto-generates a strong secret
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: DB_NAME
+        sync: false           # Set manually in Render dashboard
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "5432"
+      - key: GEMINI_API_KEY
+        sync: false           # Set manually (sensitive)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CARTO_API_KEY
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          name: bike-redis
+          type: redis
+          property: connectionString
+
+  # ── Redis Instance ──────────────────────────────────────────────────────────
+  - type: redis
+    name: bike-redis
+    region: singapore
+    plan: starter             # $7/mo, or 'free' for testing
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []           # only accessible from Render services

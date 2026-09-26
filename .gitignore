@@ -1,2 +1,37 @@
-.env
+# ─── Python ────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ─── Virtual Environment ──────────
 .env/
+venv/
+.venv/
+
+# ─── Environment Variables (secrets) ─
+.env
+bike_project/.env
+
+# ─── Django ────────────────────────
+db.sqlite3
+staticfiles/
+media/
+
+# ─── IDE ───────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS ────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Docker ────────────────────────
+docker-compose.override.yml
