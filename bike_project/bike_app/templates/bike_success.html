@@ -3,75 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Success - Bike Information</title>
+    <title>Trip Logged — MOTOTRACK</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
         body {
-            font-family: Arial, sans-serif;
-            max-width: 600px;
-            margin: 50px auto;
-            padding: 20px;
-            background-color: #f4f4f4;
-        }
-        .container {
-            background-color: white;
-            padding: 40px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .success-icon {
-            font-size: 60px;
-            color: #4CAF50;
-            margin-bottom: 20px;
-        }
-        h1 {
-            color: #4CAF50;
-            margin-bottom: 10px;
-        }
-        p {
-            color: #666;
-            font-size: 16px;
-            margin-bottom: 30px;
-        }
-        .button-group {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #111214;
+            color: #e8e6e1;
+            min-height: 100vh;
             display: flex;
-            gap: 10px;
+            align-items: center;
             justify-content: center;
+            -webkit-font-smoothing: antialiased;
         }
-        a {
-            padding: 12px 30px;
-            font-size: 16px;
+        .wrap { text-align: center; padding: 40px 24px; max-width: 400px; width: 100%; }
+        .check {
+            width: 56px; height: 56px;
+            border: 2px solid #22c55e;
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 24px;
+        }
+        .title { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+        .sub { font-size: 0.82rem; color: #5c5a56; margin-bottom: 32px; line-height: 1.5; }
+        .actions { display: flex; gap: 10px; justify-content: center; }
+        .btn {
+            font-size: 0.82rem;
+            font-weight: 600;
+            padding: 9px 20px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
             text-decoration: none;
-            border-radius: 4px;
-            display: inline-block;
-            transition: background-color 0.3s ease;
+            transition: all 0.15s;
         }
-        .btn-form {
-            background-color: #4CAF50;
-            color: white;
+        .btn-accent { background: #e8631a; color: #fff; }
+        .btn-accent:hover { background: #d45515; }
+        .btn-ghost {
+            background: transparent;
+            color: #9a9590;
+            border: 1px solid rgba(255,255,255,0.07);
         }
-        .btn-form:hover {
-            background-color: #45a049;
-        }
-        .btn-home {
-            background-color: #2196F3;
-            color: white;
-        }
-        .btn-home:hover {
-            background-color: #0b7dda;
-        }
+        .btn-ghost:hover { color: #e8e6e1; border-color: rgba(255,255,255,0.13); }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="success-icon">✓</div>
-        <h1>Success!</h1>
-        <p>Your bike trip information has been submitted successfully.</p>
-        
-        <div class="button-group">
-            <a href="{% url 'bike_form' %}" class="btn-form">Submit Another Trip</a>
-            <a href="/" class="btn-home">Home</a>
-        </div>
+<div class="wrap">
+    <div class="check">✓</div>
+    <h1 class="title">Trip Logged</h1>
+    <p class="sub">Your expedition has been recorded and added to the route database.</p>
+    <div class="actions">
+        <a href="{% url 'customer_list' %}" class="btn btn-accent">View Log →</a>
+        <a href="{% url 'customer_list' %}" class="btn btn-ghost">Home</a>
     </div>
+</div>
 </body>
 </html>

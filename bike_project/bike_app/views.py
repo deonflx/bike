@@ -295,44 +295,8 @@ def get_trip_fuel_stops(request, pk):
 
 
 # ─── Authentication Views ───────────────────────────────────────────────────────
+# Authentication is now handled by django-allauth (see urls.py).
 
-def register_view(request):
-    """User registration page"""
-    if request.user.is_authenticated:
-        return redirect('customer_list')
-    if request.method == 'POST':
-        form = UserCreationForm(request.POST)
-        if form.is_valid():
-            user = form.save()
-            login(request, user)
-            return redirect('customer_list')
-    else:
-        form = UserCreationForm()
-    return render(request, 'register.html', {'form': form})
-
-
-def login_view(request):
-    """User login page"""
-    if request.user.is_authenticated:
-        return redirect('customer_list')
-    error_message = None
-    if request.method == 'POST':
-        form = AuthenticationForm(request, data=request.POST)
-        if form.is_valid():
-            user = form.get_user()
-            login(request, user)
-            return redirect('customer_list')
-        else:
-            error_message = "Invalid username or password. Please try again."
-    else:
-        form = AuthenticationForm()
-    return render(request, 'login.html', {'form': form, 'error_message': error_message})
-
-
-def logout_view(request):
-    """Log out user and redirect to login"""
-    logout(request)
-    return redirect('login')
 
 
 # ─── Customer Views ────────────────────────────────────────────────────────────
@@ -340,7 +304,7 @@ def logout_view(request):
 def customer_list(request):
     """Home page — user trips vs community trips"""
     if not request.user.is_authenticated:
-        return redirect('login')
+        return redirect('account_login')
 
     tab = request.GET.get('tab', 'my')  # 'my' = logged-in user trips, 'all' = community trips
     if tab == 'all':

@@ -1,12 +1,10 @@
-from django.urls import path
+from django.urls import path, include
 # pyrefly: ignore [missing-import]
 from . import views
 
 urlpatterns = [
-    # Auth
-    path('register/', views.register_view, name='register'),
-    path('login/', views.login_view, name='login'),
-    path('logout/', views.logout_view, name='logout'),
+    # Allauth URLs
+    path('accounts/', include('allauth.urls')),
 
     # Home / list
     path('', views.customer_list, name='customer_list'),

@@ -3,462 +3,853 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bike Trip Manager | Customer Records</title>
-    <meta name="description" content="Manage and view all bike trip customer records with geospatial data.">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <title>MOTOTRACK — Expedition Log</title>
+    <meta name="description" content="Premium motorcycle trip planning and navigation management.">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
-            --bg:        #0f0f1a;
-            --bg2:       #1a1a2e;
-            --bg3:       #1e1e35;
-            --border:    rgba(99,102,241,0.18);
-            --purple:    #6366f1;
-            --purple-l:  #818cf8;
-            --green:     #10b981;
-            --orange:    #f59e0b;
-            --text:      #e2e8f0;
-            --muted:     #94a3b8;
-            --dim:       #64748b;
+            --asphalt:     #111214;
+            --asphalt-2:   #18191d;
+            --asphalt-3:   #1f2025;
+            --asphalt-4:   #262830;
+            --border:      rgba(255,255,255,0.07);
+            --border-hi:   rgba(255,255,255,0.14);
+            --sand:        #d4a96a;
+            --sand-dim:    #8a6b3a;
+            --amber:       #f59e0b;
+            --jade:        #22c55e;
+            --signal:      #f43f5e;
+            --text:        #e8e6e1;
+            --text-2:      #9a9590;
+            --text-3:      #5c5a56;
+            --accent:      #e8631a;
+            --accent-dim:  rgba(232,99,26,0.15);
+            --accent-glow: rgba(232,99,26,0.08);
         }
 
-        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+        html { font-size: 15px; }
+        body {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            background: var(--asphalt);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
 
-        /* ── HEADER ── */
-        .header {
-            background: linear-gradient(135deg, var(--bg2), #16213e);
+        /* ── TOPBAR ── */
+        .topbar {
+            height: 56px;
+            background: var(--asphalt-2);
             border-bottom: 1px solid var(--border);
-            padding: 0 40px; height: 68px;
-            display: flex; align-items: center; justify-content: space-between;
-            position: sticky; top: 0; z-index: 100;
-            backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            padding: 0 28px;
+            gap: 0;
+            position: sticky;
+            top: 0;
+            z-index: 200;
         }
-        .header-left { display: flex; align-items: center; gap: 14px; }
-        .logo {
-            width: 42px; height: 42px;
-            background: linear-gradient(135deg, var(--purple), #8b5cf6);
-            border-radius: 12px; display: flex; align-items: center;
-            justify-content: center; font-size: 20px;
-            box-shadow: 0 4px 16px rgba(99,102,241,0.4);
-        }
-        .header-title { font-size: 1.15rem; font-weight: 700; color: #fff; }
-        .header-sub   { font-size: 0.75rem; color: var(--muted); }
 
-        /* ── BUTTONS ── */
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-right: 32px;
+        }
+        .brand-mark {
+            width: 30px; height: 30px;
+            border: 2px solid var(--accent);
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .brand-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            color: var(--text);
+            text-transform: uppercase;
+        }
+
+        .topbar-divider { width: 1px; height: 28px; background: var(--border); margin: 0 20px; }
+
+        .nav-item {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-2);
+            text-decoration: none;
+            padding: 4px 0;
+            border-bottom: 1px solid transparent;
+            transition: color 0.15s, border-color 0.15s;
+            letter-spacing: 0.02em;
+        }
+        .nav-item.active { color: var(--text); border-bottom-color: var(--accent); }
+        .nav-item:hover { color: var(--text); }
+
+        .topbar-right {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--text-3);
+            letter-spacing: 0.04em;
+        }
+
         .btn {
-            display: inline-flex; align-items: center; gap: 7px;
-            padding: 9px 18px; border-radius: 10px; font-size: 0.85rem;
-            font-weight: 600; cursor: pointer; border: none;
-            text-decoration: none; transition: all 0.2s; font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.15s ease;
         }
-        .btn-primary {
-            background: linear-gradient(135deg, var(--purple), #8b5cf6);
-            color: #fff; box-shadow: 0 4px 14px rgba(99,102,241,0.3);
+        .btn-sm {
+            font-size: 0.78rem;
+            padding: 6px 14px;
+            border-radius: 6px;
         }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(99,102,241,0.45); }
         .btn-ghost {
-            background: transparent; color: var(--muted);
-            border: 1px solid rgba(255,255,255,0.08);
+            background: transparent;
+            color: var(--text-2);
+            border: 1px solid var(--border);
         }
-        .btn-ghost:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+        .btn-ghost:hover { color: var(--text); border-color: var(--border-hi); background: var(--asphalt-3); }
 
-        /* ── MAIN ── */
-        .main { padding: 36px 40px; max-width: 1200px; margin: 0 auto; }
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+            font-size: 0.82rem;
+            padding: 7px 18px;
+            border-radius: 6px;
+            letter-spacing: 0.02em;
+        }
+        .btn-primary:hover { background: #d45515; }
 
-        /* ── STATS ── */
-        .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; margin-bottom: 32px; }
-        .stat {
-            background: var(--bg3); border: 1px solid var(--border);
-            border-radius: 16px; padding: 22px 24px;
-            display: flex; align-items: center; gap: 16px;
-            transition: border-color 0.2s, transform 0.2s;
+        /* ── LAYOUT ── */
+        .layout {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            min-height: calc(100vh - 56px);
         }
-        .stat:hover { border-color: rgba(99,102,241,0.4); transform: translateY(-2px); }
-        .stat-ico {
-            width: 46px; height: 46px; border-radius: 12px;
-            display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;
+
+        /* ── SIDEBAR ── */
+        .sidebar {
+            background: var(--asphalt-2);
+            border-right: 1px solid var(--border);
+            padding: 28px 0;
+            display: flex;
+            flex-direction: column;
         }
-        .ico-purple { background: rgba(99,102,241,0.13); }
-        .ico-green  { background: rgba(16,185,129,0.13); }
-        .ico-orange { background: rgba(245,158,11,0.13); }
-        .stat-val { font-size: 1.9rem; font-weight: 800; color: #fff; line-height: 1; }
-        .stat-lbl { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+
+        .sidebar-section {
+            padding: 0 16px;
+            margin-bottom: 32px;
+        }
+        .sidebar-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            color: var(--text-3);
+            text-transform: uppercase;
+            padding: 0 8px;
+            margin-bottom: 8px;
+        }
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 8px;
+            border-radius: 6px;
+            font-size: 0.83rem;
+            font-weight: 500;
+            color: var(--text-2);
+            text-decoration: none;
+            transition: all 0.15s;
+            margin-bottom: 2px;
+        }
+        .sidebar-link:hover { background: var(--asphalt-3); color: var(--text); }
+        .sidebar-link.active { background: var(--accent-dim); color: var(--accent); }
+        .sidebar-link.active .sidebar-icon { color: var(--accent); }
+        .sidebar-icon { width: 16px; text-align: center; font-size: 13px; color: var(--text-3); }
+
+        /* ── STATS STRIP ── */
+        .stats-strip {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            border-bottom: 1px solid var(--border);
+        }
+        .stat-cell {
+            padding: 20px 28px;
+            border-right: 1px solid var(--border);
+        }
+        .stat-cell:last-child { border-right: none; }
+        .stat-number {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2rem;
+            font-weight: 500;
+            color: var(--text);
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+        .stat-number.accent { color: var(--accent); }
+        .stat-number.jade { color: var(--jade); }
+        .stat-label {
+            font-size: 0.72rem;
+            font-weight: 500;
+            color: var(--text-3);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        /* ── MAIN CONTENT ── */
+        .content { padding: 0; display: flex; flex-direction: column; }
 
         /* ── TOOLBAR ── */
-        .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
-        .search-box {
-            flex: 1; position: relative;
-        }
-        .search-box input {
-            width: 100%; padding: 11px 16px 11px 42px;
-            background: var(--bg3); border: 1px solid var(--border);
-            border-radius: 11px; color: var(--text); font-size: 0.875rem;
-            font-family: inherit; outline: none; transition: border-color 0.2s;
-        }
-        .search-box input:focus { border-color: var(--purple); }
-        .search-box input::placeholder { color: var(--dim); }
-        .search-ico { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--dim); font-size: 15px; }
-
-        /* ── TABLE ── */
-        .table-wrap {
-            background: var(--bg2); border: 1px solid var(--border);
-            border-radius: 16px; overflow: hidden;
-        }
-        table { width: 100%; border-collapse: collapse; }
-        thead { background: rgba(99,102,241,0.08); }
-        th {
-            padding: 14px 20px; text-align: left;
-            font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
-            letter-spacing: 0.09em; color: var(--dim);
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 28px;
             border-bottom: 1px solid var(--border);
         }
-        td {
-            padding: 15px 20px; font-size: 0.855rem;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-            color: #cbd5e1;
+        .tab-row {
+            display: flex;
+            gap: 2px;
+            background: var(--asphalt-3);
+            border-radius: 6px;
+            padding: 3px;
         }
-        tr:last-child td { border-bottom: none; }
-        tbody tr { cursor: pointer; transition: background 0.15s; }
-        tbody tr:hover td { background: rgba(99,102,241,0.07); }
+        .tab-btn {
+            font-size: 0.78rem;
+            font-weight: 500;
+            padding: 5px 14px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            background: transparent;
+            color: var(--text-2);
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+        .tab-btn.active { background: var(--asphalt-2); color: var(--text); }
+        .tab-btn:hover:not(.active) { color: var(--text); }
 
-        .id-badge { font-weight: 700; color: var(--purple-l); font-size: 0.78rem; }
-        .bike-name { font-weight: 600; color: #fff; }
-        .loc-text  { color: var(--muted); font-size: 0.8rem; max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .pill {
-            display: inline-flex; align-items: center; gap: 4px;
-            padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 600;
+        .search-wrap {
+            flex: 1;
+            max-width: 320px;
+            position: relative;
         }
-        .pill-red    { background: rgba(239,68,68,0.13); color: #f87171; }
-        .live-dot { width: 6px; height: 6px; background: #ef4444; border-radius: 50%; display:inline-block; animation: blink 1.2s infinite; margin-right:4px; }
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
-        .view-btn {
-            padding: 5px 13px; border-radius: 8px; font-size: 0.75rem; font-weight: 600;
-            background: rgba(99,102,241,0.12); color: var(--purple-l);
-            border: 1px solid rgba(99,102,241,0.25); text-decoration: none;
-            transition: all 0.18s; white-space: nowrap;
+        .search-wrap input {
+            width: 100%;
+            padding: 7px 12px 7px 34px;
+            background: var(--asphalt-3);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.8rem;
+            outline: none;
+            transition: border-color 0.15s;
         }
-        .view-btn:hover { background: var(--purple); color: #fff; }
+        .search-wrap input:focus { border-color: var(--border-hi); }
+        .search-wrap input::placeholder { color: var(--text-3); }
+        .search-icon {
+            position: absolute;
+            left: 11px; top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-3);
+            font-size: 12px;
+            pointer-events: none;
+        }
+
+        .ml-auto { margin-left: auto; }
+
+        /* ── LIVE ALERT ── */
+        .live-alert {
+            margin: 16px 28px 0;
+            padding: 10px 16px;
+            background: rgba(244,63,94,0.08);
+            border: 1px solid rgba(244,63,94,0.2);
+            border-left: 3px solid var(--signal);
+            border-radius: 0 4px 4px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.8rem;
+        }
+        .live-pulse {
+            width: 7px; height: 7px;
+            background: var(--signal);
+            border-radius: 50%;
+            animation: live-blink 1s infinite;
+            flex-shrink: 0;
+        }
+        @keyframes live-blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        .live-count { color: var(--signal); font-weight: 600; }
+        .live-sub { color: var(--text-3); }
+
+        /* ── TRIP TABLE ── */
+        .table-section { padding: 20px 28px; flex: 1; }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table thead tr {
+            border-bottom: 1px solid var(--border);
+        }
+        .data-table th {
+            padding: 10px 14px;
+            text-align: left;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            font-weight: 500;
+            color: var(--text-3);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        .data-table th:first-child { padding-left: 0; }
+        .data-table tbody tr {
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .data-table tbody tr:hover { background: var(--asphalt-3); }
+        .data-table tbody tr:last-child { border-bottom: none; }
+        .data-table td {
+            padding: 14px 14px;
+            font-size: 0.83rem;
+            color: var(--text-2);
+            vertical-align: middle;
+        }
+        .data-table td:first-child { padding-left: 0; }
+
+        .trip-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-3);
+        }
+        .bike-name {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 0.85rem;
+        }
+        .rider-tag {
+            font-size: 0.72rem;
+            color: var(--text-3);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .route-cell {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-2);
+        }
+        .route-from { font-weight: 500; color: var(--text); white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+        .route-arrow { color: var(--text-3); font-size: 10px; flex-shrink: 0; }
+        .route-to { white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+
+        .spec-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 500;
+            padding: 2px 8px;
+            border-radius: 3px;
+            border: 1px solid var(--border);
+            color: var(--text-3);
+            background: var(--asphalt-3);
+        }
+
+        .live-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: var(--signal);
+            padding: 2px 7px;
+            border-radius: 3px;
+            border: 1px solid rgba(244,63,94,0.3);
+            background: rgba(244,63,94,0.08);
+            margin-left: 8px;
+        }
+        .live-dot-sm {
+            width: 5px; height: 5px;
+            background: var(--signal);
+            border-radius: 50%;
+            animation: live-blink 1s infinite;
+        }
+
+        .action-link {
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-decoration: none;
+            padding: 5px 12px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            color: var(--text-2);
+            background: transparent;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .action-link:hover { border-color: var(--border-hi); color: var(--text); background: var(--asphalt-3); }
+        .action-link.live { border-color: rgba(244,63,94,0.3); color: var(--signal); background: rgba(244,63,94,0.07); }
+        .action-link.live:hover { background: var(--signal); color: #fff; border-color: var(--signal); }
+
+        .date-tag { color: var(--text-3); font-size: 0.78rem; }
 
         /* ── EMPTY STATE ── */
-        .empty { text-align: center; padding: 70px 40px; }
-        .empty-ico { font-size: 52px; opacity: 0.4; margin-bottom: 16px; }
-        .empty h3  { font-size: 1.1rem; color: var(--muted); margin-bottom: 6px; }
-        .empty p   { font-size: 0.82rem; color: var(--dim); margin-bottom: 20px; }
+        .empty-state {
+            padding: 80px 40px;
+            text-align: center;
+        }
+        .empty-icon {
+            font-size: 3rem;
+            opacity: 0.2;
+            margin-bottom: 16px;
+            display: block;
+        }
+        .empty-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-2);
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+        .empty-sub {
+            font-size: 0.78rem;
+            color: var(--text-3);
+            margin-bottom: 24px;
+        }
 
-        /* ── DRAWER OVERLAY ── */
+        /* ── NEW TRIP PANEL ── */
         .overlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.65);
-            backdrop-filter: blur(4px); z-index: 200;
-            opacity: 0; pointer-events: none; transition: opacity 0.3s;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 500;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
         }
         .overlay.open { opacity: 1; pointer-events: all; }
 
-        /* ── DRAWER PANEL ── */
-        .drawer {
-            position: fixed; top: 0; right: 0; height: 100vh; width: 480px;
-            background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
-            border-left: 1px solid var(--border); z-index: 201;
-            transform: translateX(100%); transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
-            display: flex; flex-direction: column; overflow: hidden;
+        .trip-panel {
+            position: fixed;
+            top: 0; right: 0; bottom: 0;
+            width: 440px;
+            background: var(--asphalt-2);
+            border-left: 1px solid var(--border);
+            z-index: 600;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        .drawer.open { transform: translateX(0); }
+        .trip-panel.open { transform: translateX(0); }
 
-        .drawer-header {
-            padding: 28px 32px 20px;
+        .panel-head {
+            padding: 24px 28px;
             border-bottom: 1px solid var(--border);
-            display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
         }
-        .drawer-title { font-size: 1.2rem; font-weight: 700; color: #fff; }
-        .drawer-sub   { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+        .panel-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text);
+            margin-bottom: 2px;
+        }
+        .panel-sub {
+            font-size: 0.75rem;
+            color: var(--text-3);
+        }
         .close-btn {
-            width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border);
-            background: transparent; color: var(--muted); font-size: 18px;
-            cursor: pointer; display: flex; align-items: center; justify-content: center;
-            transition: all 0.2s;
+            width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--text-2);
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.15s;
+            flex-shrink: 0;
         }
-        .close-btn:hover { background: rgba(255,255,255,0.06); color: #fff; }
+        .close-btn:hover { border-color: var(--border-hi); color: var(--text); }
 
-        .drawer-body { flex: 1; overflow-y: auto; padding: 28px 32px; }
-        .drawer-body::-webkit-scrollbar { width: 4px; }
-        .drawer-body::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 4px; }
+        .panel-body { flex: 1; overflow-y: auto; padding: 28px; }
 
-        /* ── FORM ── */
-        .form-section { margin-bottom: 28px; }
-        .form-section-title {
-            font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
-            letter-spacing: 0.1em; color: var(--purple-l); margin-bottom: 14px;
-            display: flex; align-items: center; gap: 8px;
+        .field-section {
+            margin-bottom: 28px;
         }
-        .form-section-title::after {
-            content: ''; flex: 1; height: 1px; background: var(--border);
+        .field-section-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            font-weight: 600;
+            color: var(--text-3);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
         }
 
-        .form-group { margin-bottom: 16px; }
-        .form-group label {
-            display: block; font-size: 0.78rem; font-weight: 600;
-            color: var(--muted); margin-bottom: 7px;
+        .field { margin-bottom: 16px; }
+        .field label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-2);
+            margin-bottom: 6px;
+            letter-spacing: 0.02em;
         }
-        .form-group input,
-        .form-group textarea {
-            width: 100%; padding: 11px 14px;
-            background: rgba(255,255,255,0.04); border: 1px solid var(--border);
-            border-radius: 10px; color: var(--text); font-size: 0.875rem;
-            font-family: inherit; outline: none; transition: all 0.2s;
+        .field input,
+        .field textarea {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--asphalt-3);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.85rem;
+            outline: none;
+            transition: border-color 0.15s;
         }
-        .form-group input:focus,
-        .form-group textarea:focus {
-            border-color: var(--purple);
-            background: rgba(99,102,241,0.06);
-            box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+        .field input:focus,
+        .field textarea:focus {
+            border-color: var(--accent);
+            background: var(--asphalt-4);
         }
-        .form-group input::placeholder,
-        .form-group textarea::placeholder { color: var(--dim); }
-        .form-group textarea { resize: vertical; min-height: 72px; }
+        .field input::placeholder,
+        .field textarea::placeholder { color: var(--text-3); }
+        .field textarea { resize: none; min-height: 70px; }
 
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .field-hint { font-size: 0.7rem; color: var(--text-3); margin-top: 5px; }
 
-        .input-hint { font-size: 0.7rem; color: var(--dim); margin-top: 5px; }
-
-        .drawer-footer {
-            padding: 20px 32px; border-top: 1px solid var(--border);
-            display: flex; gap: 12px; flex-shrink: 0;
-            background: rgba(15,15,26,0.6);
+        .route-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1px;
+            background: var(--border);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 0;
         }
-        .drawer-footer .btn { flex: 1; justify-content: center; padding: 12px; }
+        .route-input-half { 
+            background: var(--asphalt-3); 
+            padding: 12px 14px;
+        }
+        .route-input-half label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            color: var(--text-3);
+            text-transform: uppercase;
+            margin-bottom: 6px;
+            display: block;
+        }
+        .route-input-half input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.88rem;
+            font-weight: 500;
+            outline: none;
+            padding: 0;
+        }
+        .route-input-half input::placeholder { color: var(--text-3); }
+
+        .panel-footer {
+            padding: 20px 28px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 10px;
+        }
+        .panel-footer .btn { flex: 1; justify-content: center; padding: 10px; font-size: 0.82rem; }
 
         /* ── RESPONSIVE ── */
-        @media (max-width: 768px) {
-            .main { padding: 20px; }
-            .header { padding: 0 20px; }
-            .stats { grid-template-columns: 1fr 1fr; }
-            .drawer { width: 100%; }
-            th:nth-child(3), td:nth-child(3),
-            th:nth-child(4), td:nth-child(4) { display: none; }
+        @media (max-width: 900px) {
+            .layout { grid-template-columns: 1fr; }
+            .sidebar { display: none; }
         }
-        @media (max-width: 480px) {
-            .stats { grid-template-columns: 1fr; }
+        @media (max-width: 640px) {
+            .topbar { padding: 0 16px; }
+            .stats-strip { grid-template-columns: 1fr 1fr; }
+            .stats-strip .stat-cell:last-child { display: none; }
+            .toolbar { padding: 12px 16px; }
+            .table-section { padding: 16px; }
+            .data-table th:nth-child(n+5),
+            .data-table td:nth-child(n+5) { display: none; }
+            .trip-panel { width: 100%; }
         }
     </style>
 </head>
 <body>
 
-<!-- ── HEADER ── -->
-<header class="header">
-    <div class="header-left">
-        <div class="logo">🏍️</div>
-        <div>
-            <div class="header-title">Bike Trip Manager</div>
-            <div class="header-sub">Customer Records Dashboard</div>
-        </div>
+<!-- ── TOPBAR ── -->
+<header class="topbar">
+    <div class="brand">
+        <div class="brand-mark">⬡</div>
+        <span class="brand-name">Mototrack</span>
     </div>
-    <div style="display:flex; align-items:center; gap:12px;">
+    <div class="topbar-divider"></div>
+    <a href="?tab=my" class="nav-item {% if tab != 'all' %}active{% endif %}">Log</a>
+    <div class="topbar-divider"></div>
+    <div class="topbar-right">
         {% if request.user.is_authenticated %}
-        <span style="font-size:0.85rem; color:#cbd5e1; background:rgba(255,255,255,0.06); padding:6px 12px; border-radius:10px; border:1px solid var(--border);">
-            👤 <strong>{{ request.user.username }}</strong>
-        </span>
-        <a href="{% url 'logout' %}" class="btn btn-ghost" style="padding:7px 14px; font-size:0.8rem;">
-            Logout ↪
-        </a>
+        <span class="user-tag">{{ request.user.username|default:request.user.email }}</span>
         {% endif %}
-        <button class="btn btn-primary" id="openDrawerBtn" onclick="openDrawer()">
-            <span>＋</span> New Trip
-        </button>
+        <a href="{% url 'account_logout' %}" class="btn btn-sm btn-ghost">Sign Out</a>
+        <button class="btn btn-primary" onclick="openPanel()">+ New Trip</button>
     </div>
 </header>
 
-<!-- ── MAIN ── -->
-<main class="main">
+<div class="layout">
 
-    <!-- Stats -->
-    <div class="stats">
-        <div class="stat">
-            <div class="stat-ico ico-purple">📋</div>
-            <div>
-                <div class="stat-val">{{ trips|length }}</div>
-                <div class="stat-lbl">Total Records</div>
+    <!-- ── SIDEBAR ── -->
+    <aside class="sidebar">
+        <div class="sidebar-section">
+            <div class="sidebar-label">Navigation</div>
+            <a href="?tab=my" class="sidebar-link {% if tab != 'all' %}active{% endif %}">
+                <span class="sidebar-icon">◈</span> My Trips
+            </a>
+            <a href="?tab=all" class="sidebar-link {% if tab == 'all' %}active{% endif %}">
+                <span class="sidebar-icon">◉</span> All Routes
+            </a>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-label">Stats</div>
+            <div style="padding: 0 8px;">
+                <div style="margin-bottom: 14px;">
+                    <div style="font-family:'JetBrains Mono',monospace; font-size:1.6rem; font-weight:500; color:var(--text); line-height:1;">{{ my_count }}</div>
+                    <div style="font-size:0.7rem; color:var(--text-3); text-transform:uppercase; letter-spacing:0.08em; margin-top:3px;">My Trips</div>
+                </div>
+                <div>
+                    <div style="font-family:'JetBrains Mono',monospace; font-size:1.6rem; font-weight:500; color:var(--text); line-height:1;">{{ all_count }}</div>
+                    <div style="font-size:0.7rem; color:var(--text-3); text-transform:uppercase; letter-spacing:0.08em; margin-top:3px;">Community</div>
+                </div>
             </div>
         </div>
-        <div class="stat">
-            <div class="stat-ico ico-green">🛣️</div>
-            <div>
-                <div class="stat-val">{{ trips|length }}</div>
-                <div class="stat-lbl">Trips Logged</div>
+        {% if active_count %}
+        <div class="sidebar-section" style="margin-top:auto;">
+            <div style="padding: 0 8px;">
+                <div style="display:flex; align-items:center; gap:7px; font-size:0.78rem;">
+                    <div class="live-pulse"></div>
+                    <span style="color:var(--signal); font-weight:600;">{{ active_count }} Live</span>
+                </div>
             </div>
-        </div>
-        <div class="stat">
-            <div class="stat-ico ico-orange">⛽</div>
-            <div>
-                <div class="stat-val">km/L</div>
-                <div class="stat-lbl">Mileage Tracked</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Active trip banner -->
-    {% if active_count %}
-    <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.25); border-radius:12px; padding:12px 18px; margin-bottom:20px; display:flex; align-items:center; gap:10px; font-size:0.85rem;">
-        <span style="width:9px;height:9px;background:#ef4444;border-radius:50%;animation:blink 1.2s infinite;flex-shrink:0;"></span>
-        <span style="color:#f87171; font-weight:600;">{{ active_count }} active trip{{ active_count|pluralize }} in progress</span>
-        <span style="color:#64748b;">— click View → on any row to open the live map</span>
-    </div>
-    {% endif %}
-
-    <!-- Tabs for user trips vs all community trips -->
-    <div style="display:flex; gap:10px; margin-bottom:20px;">
-        <a href="?tab=my" class="btn {% if tab != 'all' %}btn-primary{% else %}btn-ghost{% endif %}" style="border-radius:12px; padding:10px 20px;">
-            🏍️ My Trips ({{ my_count }})
-        </a>
-        <a href="?tab=all" class="btn {% if tab == 'all' %}btn-primary{% else %}btn-ghost{% endif %}" style="border-radius:12px; padding:10px 20px;">
-            🌍 All Community Trips ({{ all_count }})
-        </a>
-    </div>
-
-    <!-- Toolbar -->
-    <div class="toolbar">
-        <div class="search-box">
-            <span class="search-ico">🔍</span>
-            <input type="text" id="searchInput" placeholder="Search by bike name, rider, or location…" oninput="filterTable()">
-        </div>
-    </div>
-
-    <!-- Table -->
-    <div class="table-wrap">
-        {% if trips %}
-        <table id="tripTable">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Rider</th>
-                    <th>Bike Name</th>
-                    <th>From</th>
-                    <th>To</th>
-                    <th>Fuel</th>
-                    <th>Mileage</th>
-                    <th>Date</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for trip in trips %}
-                <tr onclick="window.location='{% url 'customer_detail' trip.pk %}'">
-                    <td><span class="id-badge">#{{ trip.pk }}</span></td>
-                    <td>
-                        <span style="color:#a5b4fc; font-weight:600; font-size:0.78rem; background:rgba(99,102,241,0.15); padding:3px 8px; border-radius:6px; border:1px solid rgba(99,102,241,0.25);">
-                            👤 @{{ trip.user.username|default:"Anonymous" }}
-                        </span>
-                    </td>
-                    <td>
-                        <span class="bike-name">{{ trip.bikename }}</span>
-                        {% if trip.active_session %}
-                        <span class="pill pill-red" style="margin-left:6px; font-size:0.68rem;">
-                            <span class="live-dot"></span>LIVE
-                        </span>
-                        {% endif %}
-                    </td>
-                    <td><span class="loc-text" title="{{ trip.starting_name }}">{{ trip.starting_name }}</span></td>
-                    <td><span class="loc-text" title="{{ trip.destination_name }}">{{ trip.destination_name }}</span></td>
-                    <td><span class="pill pill-blue">⛽ {{ trip.redis_capacity }}L</span></td>
-                    <td><span class="pill pill-green">🛣️ {{ trip.redis_mileage }}</span></td>
-                    <td>{{ trip.created_at|date:"d M Y" }}</td>
-                    <td>
-                        {% if trip.active_session %}
-                        <a href="{% url 'trip_map' trip.active_session.pk %}" class="view-btn"
-                           style="background:rgba(239,68,68,0.15);color:#f87171;border-color:rgba(239,68,68,0.3);"
-                           onclick="event.stopPropagation()">● Live Map</a>
-                        {% else %}
-                        <a href="{% url 'customer_detail' trip.pk %}" class="view-btn"
-                           onclick="event.stopPropagation()">View →</a>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <div class="empty">
-            <div class="empty-ico">🏍️</div>
-            <h3>No trips recorded yet</h3>
-            <p>Click "New Trip" to add your first bike trip record.</p>
-            <button class="btn btn-primary" onclick="openDrawer()">＋ &nbsp;Add First Trip</button>
         </div>
         {% endif %}
-    </div>
-</main>
+    </aside>
+
+    <!-- ── MAIN ── -->
+    <main class="content">
+
+        <!-- Stats strip -->
+        <div class="stats-strip">
+            <div class="stat-cell">
+                <div class="stat-number">{{ my_count }}</div>
+                <div class="stat-label">Trips Logged</div>
+            </div>
+            <div class="stat-cell">
+                <div class="stat-number jade">{{ all_count }}</div>
+                <div class="stat-label">Community Routes</div>
+            </div>
+            <div class="stat-cell">
+                <div class="stat-number accent">{{ active_count }}</div>
+                <div class="stat-label">Active Sessions</div>
+            </div>
+        </div>
+
+        <!-- Live alert -->
+        {% if active_count %}
+        <div class="live-alert">
+            <div class="live-pulse"></div>
+            <span class="live-count">{{ active_count }} active trip{{ active_count|pluralize }} on the road</span>
+            <span class="live-sub">— tap View to open live map</span>
+        </div>
+        {% endif %}
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <div class="tab-row">
+                <a href="?tab=my" class="tab-btn {% if tab != 'all' %}active{% endif %}">
+                    My Trips ({{ my_count }})
+                </a>
+                <a href="?tab=all" class="tab-btn {% if tab == 'all' %}active{% endif %}">
+                    All Routes ({{ all_count }})
+                </a>
+            </div>
+
+            <div class="search-wrap">
+                <span class="search-icon">⌕</span>
+                <input type="text" id="searchInput" placeholder="Search bike, rider, location…" oninput="filterTable()">
+            </div>
+
+            <div class="ml-auto">
+                <button class="btn btn-sm btn-ghost" onclick="openPanel()">+ New Trip</button>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-section">
+            {% if trips %}
+            <table class="data-table" id="tripTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Bike / Rider</th>
+                        <th>Route</th>
+                        <th>Specs</th>
+                        <th>Date</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for trip in trips %}
+                    <tr onclick="window.location='{% url 'customer_detail' trip.pk %}'">
+                        <td>
+                            <span class="trip-id">{{ trip.pk }}</span>
+                        </td>
+                        <td>
+                            <div class="bike-name">
+                                {{ trip.bikename }}
+                                {% if trip.active_session %}
+                                <span class="live-tag"><span class="live-dot-sm"></span>LIVE</span>
+                                {% endif %}
+                            </div>
+                            <div class="rider-tag">@{{ trip.user.username|default:"anon" }}</div>
+                        </td>
+                        <td>
+                            <div class="route-cell">
+                                <span class="route-from" title="{{ trip.starting_name }}">{{ trip.starting_name }}</span>
+                                <span class="route-arrow">→</span>
+                                <span class="route-to" title="{{ trip.destination_name }}">{{ trip.destination_name }}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                                <span class="spec-tag">⛽ {{ trip.redis_capacity }}L</span>
+                                <span class="spec-tag">{{ trip.redis_mileage }}km/L</span>
+                            </div>
+                        </td>
+                        <td><span class="date-tag">{{ trip.created_at|date:"d M Y" }}</span></td>
+                        <td onclick="event.stopPropagation()">
+                            {% if trip.active_session %}
+                            <a href="{% url 'trip_map' trip.active_session.pk %}" class="action-link live">● Live Map</a>
+                            {% else %}
+                            <a href="{% url 'customer_detail' trip.pk %}" class="action-link">View →</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <span class="empty-icon">⊡</span>
+                <div class="empty-title">No trips recorded</div>
+                <div class="empty-sub">Log your first expedition to get started.</div>
+                <button class="btn btn-primary" onclick="openPanel()">+ Log First Trip</button>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+</div>
 
 <!-- ── OVERLAY ── -->
-<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+<div class="overlay" id="overlay" onclick="closePanel()"></div>
 
-<!-- ── DRAWER ── -->
-<div class="drawer" id="drawer">
-    <div class="drawer-header">
+<!-- ── TRIP PANEL ── -->
+<div class="trip-panel" id="tripPanel">
+    <div class="panel-head">
         <div>
-            <div class="drawer-title">🏍️ &nbsp;New Bike Trip</div>
-            <div class="drawer-sub">Fill in the details to log a new trip record</div>
+            <div class="panel-title">Log New Trip</div>
+            <div class="panel-sub">Fill in your route and bike details</div>
         </div>
-        <button class="close-btn" onclick="closeDrawer()">✕</button>
+        <button class="close-btn" onclick="closePanel()">✕</button>
     </div>
 
-    <div class="drawer-body">
+    <div class="panel-body">
         <form method="POST" action="{% url 'bike_submit' %}" id="tripForm">
             {% csrf_token %}
 
-            <!-- Bike Info -->
-            <div class="form-section">
-                <div class="form-section-title">Bike Information</div>
-
-                <div class="form-group">
-                    <label for="bikename">Bike Name / Model</label>
-                    <input type="text" id="bikename" name="bikename"
-                           placeholder="e.g. Royal Enfield Himalayan" required>
+            <div class="field-section">
+                <div class="field-section-label">Bike</div>
+                <div class="field">
+                    <label for="bikename">Model / Name</label>
+                    <input type="text" id="bikename" name="bikename" placeholder="e.g. Royal Enfield Himalayan 450" required>
                 </div>
             </div>
 
-            <!-- Route Info -->
-            <div class="form-section">
-                <div class="form-section-title">Route Details</div>
-
-                <div class="form-group">
-                    <label for="starting_location">Starting Location</label>
-                    <textarea id="starting_location" name="starting_location"
-                              placeholder="e.g. Mumbai, Maharashtra" required></textarea>
+            <div class="field-section">
+                <div class="field-section-label">Route</div>
+                <div class="route-inputs">
+                    <div class="route-input-half">
+                        <label for="starting_location">FROM</label>
+                        <input type="text" id="starting_location" name="starting_location" placeholder="Starting city" required>
+                    </div>
+                    <div class="route-input-half">
+                        <label for="destination_location">TO</label>
+                        <input type="text" id="destination_location" name="destination_location" placeholder="Destination" required>
+                    </div>
                 </div>
-
-                <div class="form-group">
-                    <label for="destination_location">Destination</label>
-                    <textarea id="destination_location" name="destination_location"
-                              placeholder="e.g. Pune, Maharashtra" required></textarea>
-                </div>
+                <div class="field-hint" style="margin-top:8px;">Enter city names or full addresses — we geocode these automatically.</div>
             </div>
 
         </form>
     </div>
 
-    <div class="drawer-footer">
-        <button class="btn btn-ghost" onclick="closeDrawer()">Cancel</button>
-        <button class="btn btn-primary" onclick="document.getElementById('tripForm').submit()">
-            ✓ &nbsp;Save Trip
-        </button>
+    <div class="panel-footer">
+        <button class="btn btn-sm btn-ghost" onclick="closePanel()">Cancel</button>
+        <button class="btn btn-primary" onclick="document.getElementById('tripForm').submit()">Save Trip</button>
     </div>
 </div>
 
 <script>
-    // ── Drawer open/close ──
-    function openDrawer() {
-        document.getElementById('drawer').classList.add('open');
+    function openPanel() {
+        document.getElementById('tripPanel').classList.add('open');
         document.getElementById('overlay').classList.add('open');
         document.body.style.overflow = 'hidden';
-        setTimeout(() => document.getElementById('bikename').focus(), 350);
+        setTimeout(() => document.getElementById('bikename').focus(), 280);
     }
-    function closeDrawer() {
-        document.getElementById('drawer').classList.remove('open');
+    function closePanel() {
+        document.getElementById('tripPanel').classList.remove('open');
         document.getElementById('overlay').classList.remove('open');
         document.body.style.overflow = '';
     }
-    // Close on Escape
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
 
-    // ── Table search ──
     function filterTable() {
         const q = document.getElementById('searchInput').value.toLowerCase();
         document.querySelectorAll('#tripTable tbody tr').forEach(row => {
