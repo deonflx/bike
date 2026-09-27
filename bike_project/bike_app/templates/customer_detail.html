@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ trip.bikename }} — MOTOTRACK</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -333,59 +334,366 @@
             border-radius: 3px;
         }
 
-        /* ── RIDERS SECTION ── */
-        .rider-row {
-            padding: 14px 0;
+        /* ── EXPEDITION RADAR / CO-TRAVELERS ── */
+        .radar-block {
+            border: 1px solid rgba(34,197,94,0.22);
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--asphalt-2);
+        }
+        .radar-head {
+            padding: 14px 20px;
             border-bottom: 1px solid var(--border);
             display: flex;
+            align-items: center;
             justify-content: space-between;
-            align-items: flex-start;
+            background: rgba(34,197,94,0.05);
+            flex-wrap: wrap;
+            gap: 10px;
         }
-        .rider-row:last-child { border-bottom: none; }
-        .rider-bike { font-weight: 600; color: var(--text); font-size: 0.85rem; margin-bottom: 3px; }
-        .rider-info { font-size: 0.75rem; color: var(--text-3); display: flex; flex-direction: column; gap: 2px; }
-        .dist-badge {
+        .radar-title-group {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .radar-title-tag {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            color: var(--jade);
+            text-transform: uppercase;
+        }
+        .radar-ping-dot {
+            width: 7px; height: 7px;
+            background: var(--jade);
+            border-radius: 50%;
+            box-shadow: 0 0 0 0 rgba(34,197,94,0.6);
+            animation: radar-ping 1.8s infinite;
+        }
+        @keyframes radar-ping {
+            0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
+            70% { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+            100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+        }
+        .radar-sub {
+            font-size: 0.76rem;
+            color: var(--text-2);
+        }
+        .radar-filters {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .radar-filter-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.65rem;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 4px;
+            text-decoration: none;
+            color: var(--text-3);
+            border: 1px solid var(--border);
+            background: var(--asphalt-3);
+            transition: all 0.15s;
+        }
+        .radar-filter-btn:hover {
+            color: var(--text);
+            border-color: var(--border-hi);
+        }
+        .radar-filter-btn.active {
+            color: #000;
+            background: var(--jade);
+            border-color: var(--jade);
+            font-weight: 700;
+        }
+
+        /* ── Mini Radar Map ── */
+        .radar-map-wrap {
+            position: relative;
+            border-bottom: 1px solid var(--border);
+            background: var(--asphalt);
+        }
+        #radarMap {
+            width: 100%;
+            height: 240px;
+            background: var(--asphalt);
+        }
+        .radar-map-overlay {
+            position: absolute;
+            bottom: 10px;
+            left: 12px;
+            z-index: 400;
+            pointer-events: none;
+            background: rgba(17,18,20,0.88);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            color: var(--text-2);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .radar-map-overlay strong { color: var(--jade); font-weight: 600; }
+
+        /* ── Radar Telemetry HUD Strip ── */
+        .radar-hud-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            border-bottom: 1px solid var(--border);
+            background: var(--asphalt-3);
+        }
+        .radar-hud-cell {
+            padding: 9px 16px;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .radar-hud-cell:last-child { border-right: none; }
+        .radar-hud-key {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.58rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            color: var(--text-3);
+            text-transform: uppercase;
+        }
+        .radar-hud-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .radar-hud-val.jade { color: var(--jade); }
+        .radar-hud-val.amber { color: var(--amber); }
+
+        /* ── Convoy Cards List ── */
+        .radar-cards-list {
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .convoy-card {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: background 0.15s;
+        }
+        .convoy-card:last-child { border-bottom: none; }
+        .convoy-card:hover {
+            background: rgba(255,255,255,0.015);
+        }
+        .convoy-card.is-live {
+            border-left: 3px solid var(--signal);
+            background: rgba(244,63,94,0.02);
+        }
+        .convoy-card-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .convoy-rider-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .convoy-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            background: var(--asphalt-3);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .convoy-handle {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .convoy-trip-chip {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            color: var(--text-3);
+            background: var(--asphalt-3);
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid var(--border);
+        }
+        .convoy-badges {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .proximity-pill {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.68rem;
             font-weight: 600;
-            color: var(--accent);
-            background: var(--accent-dim);
-            border: 1px solid rgba(232,99,26,0.2);
-            padding: 2px 8px;
-            border-radius: 3px;
-            white-space: nowrap;
-            flex-shrink: 0;
-            margin-top: 2px;
-        }
-        .rider-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-
-        .live-tag {
+            color: var(--jade);
+            background: rgba(34,197,94,0.1);
+            border: 1px solid rgba(34,197,94,0.25);
+            padding: 3px 8px;
+            border-radius: 4px;
             display: inline-flex;
             align-items: center;
             gap: 5px;
-            font-size: 0.62rem;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            color: var(--signal);
-            padding: 2px 6px;
-            border-radius: 3px;
-            border: 1px solid rgba(244,63,94,0.3);
-            background: rgba(244,63,94,0.08);
         }
-        .live-dot {
-            width: 5px; height: 5px;
+        .proximity-pill.exact {
+            color: #000;
+            background: var(--jade);
+            border-color: var(--jade);
+            font-weight: 700;
+        }
+        .live-beacon {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.64rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            color: var(--signal);
+            background: rgba(244,63,94,0.12);
+            border: 1px solid rgba(244,63,94,0.3);
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .live-beacon-dot {
+            width: 6px; height: 6px;
             background: var(--signal);
             border-radius: 50%;
             animation: live-blink 1s infinite;
         }
         @keyframes live-blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-        .empty-riders {
-            padding: 24px 0;
+        .convoy-bike-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .convoy-bike-title {
+            font-size: 0.96rem;
+            font-weight: 600;
+            color: var(--text);
+            letter-spacing: -0.01em;
+        }
+        .convoy-route {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.78rem;
+            color: var(--text-2);
+        }
+        .convoy-route .point { color: var(--text); font-weight: 500; }
+        .convoy-route .arrow { color: var(--accent); font-size: 0.72rem; }
+
+        .convoy-telemetry-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 0.72rem;
+            color: var(--text-3);
+            flex-wrap: wrap;
+            padding-top: 4px;
+        }
+        .telemetry-item {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+        .t-val {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-2);
+            font-weight: 500;
+        }
+        .convoy-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 2px;
+        }
+
+        /* ── Empty State ── */
+        .radar-empty {
+            padding: 36px 20px;
             text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        .radar-empty-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 2px dashed rgba(34,197,94,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--jade);
+            font-size: 1.1rem;
+            position: relative;
+        }
+        .radar-empty-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: var(--text);
+            text-transform: uppercase;
+        }
+        .radar-empty-desc {
             font-size: 0.78rem;
             color: var(--text-3);
+            max-width: 440px;
+            line-height: 1.5;
         }
+
+        /* Leaflet custom pins for radar */
+        .target-pin {
+            width: 26px; height: 26px;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            background: var(--jade);
+            border: 2px solid #fff;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
+        .target-pin span { transform: rotate(45deg); font-size: 11px; color: #000; font-weight: 700; }
+        .rider-pin {
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: 2px solid #fff;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 10px; font-weight: 700;
+            box-shadow: 0 0 8px rgba(232,99,26,0.6);
+        }
+        .rider-pin.live {
+            background: var(--signal);
+            box-shadow: 0 0 10px rgba(244,63,94,0.8);
+            animation: live-blink 1s infinite;
+        }
+        .radar-map-wrap .leaflet-tile { filter: brightness(0.82) saturate(0.75); }
 
         /* ── MODAL ── */
         .modal-overlay {
@@ -518,37 +826,153 @@
             </div>
         </div>
 
-        <!-- Riders nearby -->
-        <div class="block">
-            <div class="block-head">
-                <span class="block-title">Riders Near Destination</span>
-                <span style="font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:var(--text-3);">
-                    {{ co_travelers|length }} within 5 km
-                </span>
-            </div>
-            <div class="block-body" style="padding: 0 20px;">
-                {% if co_travelers %}
-                {% for rider in co_travelers %}
-                <div class="rider-row">
-                    <div>
-                        <div class="rider-bike">{{ rider.bikename }}</div>
-                        <div class="rider-info">
-                            <span>@{{ rider.user.username|default:"anon" }}</span>
-                            <span>{{ rider.starting_name }} → {{ rider.destination_name }}</span>
-                            <span>{{ rider.created_at|date:"d M Y" }}</span>
-                        </div>
+        <!-- Destination Convoy Radar -->
+        <div class="radar-block">
+            <div class="radar-head">
+                <div class="radar-title-group">
+                    <div class="radar-title-tag">
+                        <span class="radar-ping-dot"></span>
+                        Expedition Radar // Same Destination
                     </div>
-                    <div class="rider-actions">
-                        <span class="dist-badge">{{ rider.formatted_dist }}</span>
-                        {% if rider.active_session %}
-                        <span class="live-tag"><span class="live-dot"></span>LIVE</span>
-                        {% endif %}
-                        <a href="{% url 'customer_detail' rider.pk %}" class="btn btn-sm btn-ghost" style="font-size:0.72rem; padding:4px 10px;">View</a>
+                    <div class="radar-sub">
+                        Riders travelling to <strong>{{ trip.destination_name }}</strong> or within {{ radius_km }} km perimeter
                     </div>
                 </div>
-                {% endfor %}
+                <div class="radar-filters">
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--text-3); text-transform:uppercase; margin-right:4px;">Radius:</span>
+                    <a href="?radius=5" class="radar-filter-btn {% if radius_km == 5 %}active{% endif %}">5 KM</a>
+                    <a href="?radius=10" class="radar-filter-btn {% if radius_km == 10 %}active{% endif %}">10 KM</a>
+                    <a href="?radius=25" class="radar-filter-btn {% if radius_km == 25 %}active{% endif %}">25 KM</a>
+                    <a href="?radius=50" class="radar-filter-btn {% if radius_km == 50 %}active{% endif %}">50 KM</a>
+                </div>
+            </div>
+
+            <!-- Mini Radar Map -->
+            {% if dest_lat and dest_lng %}
+            <div class="radar-map-wrap">
+                <div id="radarMap"></div>
+                <div class="radar-map-overlay">
+                    <span>TARGET: <strong>{{ trip.destination_name }}</strong></span>
+                    <span>•</span>
+                    <span>PERIMETER: <strong>{{ radius_km }} KM RADAR</strong></span>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Telemetry HUD Bar -->
+            <div class="radar-hud-bar">
+                <div class="radar-hud-cell">
+                    <span class="radar-hud-key">Target Destination</span>
+                    <span class="radar-hud-val">{{ trip.destination_name }}</span>
+                </div>
+                <div class="radar-hud-cell">
+                    <span class="radar-hud-key">Radar Perimeter</span>
+                    <span class="radar-hud-val jade">{{ radius_km }} KM RADIUS</span>
+                </div>
+                <div class="radar-hud-cell">
+                    <span class="radar-hud-key">Riders Detected</span>
+                    <span class="radar-hud-val {% if co_travelers %}jade{% endif %}">
+                        {{ co_travelers|length }} RIDER{{ co_travelers|length|pluralize:"S" }}
+                    </span>
+                </div>
+                <div class="radar-hud-cell">
+                    <span class="radar-hud-key">Live Sessions</span>
+                    <span class="radar-hud-val amber">
+                        {% with live_count=0 %}
+                            {% for r in co_travelers %}{% if r.active_session %}{% endif %}{% endfor %}
+                            {{ co_travelers|length|yesno:"ACTIVE SCAN,STANDBY" }}
+                        {% endwith %}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Convoy List -->
+            <div class="radar-cards-list">
+                {% if co_travelers %}
+                    {% for rider in co_travelers %}
+                    <div class="convoy-card {% if rider.active_session %}is-live{% endif %}">
+                        <div class="convoy-card-top">
+                            <div class="convoy-rider-info">
+                                <div class="convoy-avatar">@</div>
+                                <span class="convoy-handle">{{ rider.user.username|default:"anonymous" }}</span>
+                                <span class="convoy-trip-chip">TRIP #{{ rider.pk }}</span>
+                            </div>
+                            <div class="convoy-badges">
+                                {% if rider.active_session %}
+                                <span class="live-beacon">
+                                    <span class="live-beacon-dot"></span> LIVE ON ROAD
+                                </span>
+                                {% endif %}
+                                <span class="proximity-pill {% if rider.dist_km == 0 %}exact{% endif %}">
+                                    ● {{ rider.formatted_dist }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="convoy-bike-row">
+                            <div class="convoy-bike-title">{{ rider.bikename }}</div>
+                            <div class="convoy-route">
+                                <span class="point">{{ rider.starting_name }}</span>
+                                <span class="arrow">➔</span>
+                                <span class="point">{{ rider.destination_name }}</span>
+                            </div>
+                        </div>
+
+                        <div class="convoy-telemetry-row">
+                            <div class="telemetry-item">
+                                <span>Tank:</span>
+                                <span class="t-val">{{ rider.redis_capacity }} L</span>
+                            </div>
+                            <span>•</span>
+                            <div class="telemetry-item">
+                                <span>Mileage:</span>
+                                <span class="t-val">{{ rider.redis_mileage }} km/L</span>
+                            </div>
+                            {% if rider.estimated_range %}
+                            <span>•</span>
+                            <div class="telemetry-item">
+                                <span>Range:</span>
+                                <span class="t-val">{{ rider.estimated_range }} km</span>
+                            </div>
+                            {% endif %}
+                            <span>•</span>
+                            <div class="telemetry-item">
+                                <span>Logged:</span>
+                                <span class="t-val">{{ rider.created_at|date:"d M Y" }}</span>
+                            </div>
+                        </div>
+
+                        <div class="convoy-actions">
+                            <a href="{% url 'customer_detail' rider.pk %}" class="btn btn-sm btn-ghost" style="font-size:0.75rem; padding:4px 12px;">
+                                View Trip #{{ rider.pk }}
+                            </a>
+                            <a href="{% url 'view_route' rider.pk %}" class="btn btn-sm btn-ghost" style="font-size:0.75rem; padding:4px 12px;">
+                                View Route
+                            </a>
+                            {% if rider.active_session %}
+                            <a href="{% url 'trip_map' rider.active_session.pk %}" class="btn btn-sm btn-signal" style="font-size:0.75rem; padding:4px 12px;">
+                                <span class="live-beacon-dot"></span> Watch Live
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
                 {% else %}
-                <div class="empty-riders">No riders found within 5 km of {{ trip.destination_name }}</div>
+                    <div class="radar-empty">
+                        <div class="radar-empty-icon">⬡</div>
+                        <div class="radar-empty-title">No Co-Travelers Detected Within {{ radius_km }} KM</div>
+                        <div class="radar-empty-desc">
+                            No other riders currently have a trip planned to <strong>{{ trip.destination_name }}</strong> within a {{ radius_km }} km perimeter.
+                            You are leading the way! When any rider creates a trip to this destination, they will appear here automatically.
+                        </div>
+                        {% if radius_km < 50 %}
+                        <div style="margin-top:6px;">
+                            <a href="?radius=25" class="btn btn-sm btn-ghost" style="color:var(--jade); border-color:rgba(34,197,94,0.3);">
+                                Expand Perimeter to 25 KM →
+                            </a>
+                        </div>
+                        {% endif %}
+                    </div>
                 {% endif %}
             </div>
         </div>
@@ -707,6 +1131,109 @@ async function loadFuelStops() {
         btn.textContent = 'Retry';
     }
 }
+</script>
+
+<!-- Leaflet Library -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── Destination Convoy Radar Map ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    const radarEl = document.getElementById('radarMap');
+    if (!radarEl) return;
+
+    const destLat = {{ dest_lat|default:"null" }};
+    const destLng = {{ dest_lng|default:"null" }};
+    const radiusKm = {{ radius_km|default:"5" }};
+    const cartoKey = "{{ carto_api_key }}";
+    const coTravelers = {{ co_travelers_json|safe }};
+
+    if (destLat === null || destLng === null) {
+        radarEl.parentElement.style.display = 'none';
+        return;
+    }
+
+    const keyParam = cartoKey ? `?key=${cartoKey}` : '';
+    const map = L.map('radarMap', {
+        zoomControl: true,
+        scrollWheelZoom: false,
+        attributionControl: false
+    }).setView([destLat, destLng], 12);
+
+    L.tileLayer(`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png${keyParam}`, {
+        subdomains: 'abcd',
+        maxZoom: 19
+    }).addTo(map);
+
+    // Radar perimeter circle (radius in meters)
+    const radiusMeters = radiusKm * 1000;
+    const radarCircle = L.circle([destLat, destLng], {
+        radius: radiusMeters,
+        color: '#22c55e',
+        weight: 1.5,
+        opacity: 0.8,
+        dashArray: '5, 6',
+        fillColor: '#22c55e',
+        fillOpacity: 0.06
+    }).addTo(map);
+
+    // Destination target marker
+    const targetIcon = L.divIcon({
+        html: '<div class="target-pin"><span>◉</span></div>',
+        className: '',
+        iconSize: [26, 26],
+        iconAnchor: [13, 26],
+        popupAnchor: [0, -28]
+    });
+    const targetMarker = L.marker([destLat, destLng], { icon: targetIcon }).addTo(map);
+    targetMarker.bindPopup(`
+        <div style="font-family:'Space Grotesk',sans-serif; padding:4px;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:#22c55e; font-weight:700; text-transform:uppercase;">Target Destination</div>
+            <div style="font-size:13px; font-weight:700; color:#fff; margin-top:2px;">{{ trip.destination_name }}</div>
+            <div style="font-size:11px; color:#9a9590; margin-top:1px;">{{ trip.bikename }} (@{{ trip.user.username|default:"you" }})</div>
+        </div>
+    `);
+
+    // Co-traveler markers
+    const groupBounds = L.featureGroup([radarCircle]);
+
+    coTravelers.forEach(rider => {
+        if (rider.dest_lat !== null && rider.dest_lng !== null) {
+            const isLive = rider.is_live;
+            const riderIcon = L.divIcon({
+                html: `<div class="rider-pin ${isLive ? 'live' : ''}"><span>${isLive ? '●' : '▲'}</span></div>`,
+                className: '',
+                iconSize: [22, 22],
+                iconAnchor: [11, 11],
+                popupAnchor: [0, -14]
+            });
+
+            const rMarker = L.marker([rider.dest_lat, rider.dest_lng], { icon: riderIcon }).addTo(map);
+            groupBounds.addLayer(rMarker);
+
+            rMarker.bindPopup(`
+                <div style="font-family:'Space Grotesk',sans-serif; padding:4px; min-width:160px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+                        <span style="font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; color:#e8e6e1;">@${rider.username}</span>
+                        ${isLive ? '<span style="font-size:9px; color:#f43f5e; font-weight:700;">● LIVE</span>' : ''}
+                    </div>
+                    <div style="font-size:12px; font-weight:600; color:#e8631a; margin-top:2px;">${rider.bikename}</div>
+                    <div style="font-size:10px; color:#9a9590; margin-top:2px;">${rider.starting_name} ➔ ${rider.destination_name}</div>
+                    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#22c55e; font-weight:600; margin-top:4px;">● ${rider.formatted_dist}</div>
+                    <div style="margin-top:8px;">
+                        <a href="/customers/${rider.id}/" style="display:inline-block; font-size:10px; padding:3px 8px; background:#262830; color:#fff; text-decoration:none; border-radius:3px; border:1px solid rgba(255,255,255,0.1);">View Trip</a>
+                        ${isLive ? `<a href="/session/${rider.live_session_id}/" style="display:inline-block; font-size:10px; padding:3px 8px; background:#f43f5e; color:#fff; text-decoration:none; border-radius:3px; margin-left:4px;">Watch Live</a>` : ''}
+                    </div>
+                </div>
+            `);
+        }
+    });
+
+    try {
+        map.fitBounds(groupBounds.getBounds(), { padding: [24, 24] });
+    } catch(e) {
+        map.setView([destLat, destLng], 12);
+    }
+});
 </script>
 
 </body>

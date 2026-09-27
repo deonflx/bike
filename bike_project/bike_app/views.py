@@ -336,51 +336,80 @@ def customer_list(request):
 
 
 def customer_detail(request, pk):
-    """Full details of a single bike trip record"""
+    """Full details of a single bike trip record with destination co-traveler radar"""
     trip = get_object_or_404(BikeTrip, pk=pk)
+
+    # Auto-heal missing coordinates if names exist
+    if not trip.destination_point and trip.destination_name:
+        pt = _geocode(trip.destination_name)
+        if pt:
+            trip.destination_point = pt
+            trip.save(update_fields=['destination_point'])
+    if not trip.starting_point and trip.starting_name:
+        pt = _geocode(trip.starting_name)
+        if pt:
+            trip.starting_point = pt
+            trip.save(update_fields=['starting_point'])
 
     # Fetch bike specs from Redis
     bike_specs = get_bike_specs(trip.pk)
-    capacity   = float(bike_specs.get('capacity', 0))
-    mileage    = float(bike_specs.get('mileage',  0))
+    try:
+        capacity = float(bike_specs.get('capacity', 0))
+    except (ValueError, TypeError):
+        capacity = 0.0
+    try:
+        mileage = float(bike_specs.get('mileage', 0))
+    except (ValueError, TypeError):
+        mileage = 0.0
     estimated_range = capacity * mileage if capacity and mileage else 0
 
     active_session = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_ACTIVE).first()
     past_sessions  = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_COMPLETED)
 
-    # ── PostGIS 5 km Radius Destination Comparison ───────────
-    co_query = BikeTrip.objects.exclude(pk=trip.pk)
-    co_travelers = []
+    # ── Destination Co-Travelers Query (Same Destination or within radius km) ──
+    try:
+        radius_km = float(request.GET.get('radius', 5.0))
+        if radius_km <= 0 or radius_km > 100:
+            radius_km = 5.0
+    except (ValueError, TypeError):
+        radius_km = 5.0
 
+    co_query = BikeTrip.objects.exclude(pk=trip.pk).select_related('user')
+    dest_clean = (trip.destination_name or '').strip()
+    dest_city = dest_clean.split(',')[0].strip()
+
+    co_travelers = []
     if trip.destination_point:
         try:
-            # Query destinations within 5 km using PostGIS ST_DistanceSphere
+            # Query destinations within radius km (default 5 km) OR matching destination name/city
+            filter_q = Q(
+                destination_point__isnull=False,
+                destination_point__distance_lte=(trip.destination_point, D(km=radius_km))
+            )
+            if dest_city:
+                filter_q |= Q(destination_name__icontains=dest_city)
+            elif dest_clean:
+                filter_q |= Q(destination_name__iexact=dest_clean)
+
             co_travelers = list(
-                co_query.filter(
-                    destination_point__isnull=False,
-                    destination_point__distance_lte=(trip.destination_point, D(km=5))
-                )
+                co_query.filter(filter_q)
                 .annotate(dest_distance=Distance('destination_point', trip.destination_point))
                 .order_by('dest_distance')
             )
-            # Format distance for display
-            for rider in co_travelers:
-                if hasattr(rider, 'dest_distance') and rider.dest_distance:
-                    km_val = rider.dest_distance.km
-                    rider.formatted_dist = f"{km_val:.2f} km" if km_val >= 1.0 else f"{rider.dest_distance.m:.0f} m"
-                else:
-                    rider.formatted_dist = "< 5 km"
         except Exception as e:
-            print(f"PostGIS 5km query failed: {e}")
+            print(f"PostGIS destination query failed: {e}")
+            if dest_city:
+                co_travelers = list(co_query.filter(destination_name__icontains=dest_city))
+            elif dest_clean:
+                co_travelers = list(co_query.filter(destination_name__iexact=dest_clean))
     else:
-        # Fallback if geocoding coordinates are not available
-        dest_city = (trip.destination_name or '').split(',')[0].strip()
         if dest_city:
             co_travelers = list(co_query.filter(destination_name__icontains=dest_city))
-            for rider in co_travelers:
-                rider.formatted_dist = "Same City"
+        elif dest_clean:
+            co_travelers = list(co_query.filter(destination_name__iexact=dest_clean))
 
-    # Attach live active session & specs for each co-traveler
+    # Attach live active session & Redis specs for each co-traveler
+    active_co_sessions = {}
     if co_travelers:
         active_co_sessions = {
             s.bike_trip_id: s
@@ -388,19 +417,83 @@ def customer_detail(request, pk):
                 bike_trip__in=co_travelers, status=TripSession.STATUS_ACTIVE
             ).select_related('bike_trip')
         }
-        for rider in co_travelers:
-            rider.active_session = active_co_sessions.get(rider.pk)
-            specs = get_bike_specs(rider.pk)
-            rider.redis_capacity = specs.get('capacity', '—')
-            rider.redis_mileage  = specs.get('mileage',  '—')
+
+    co_travelers_json = []
+    for rider in co_travelers:
+        rider.active_session = active_co_sessions.get(rider.pk)
+        specs = get_bike_specs(rider.pk)
+        rider.redis_capacity = specs.get('capacity', '—')
+        rider.redis_mileage  = specs.get('mileage',  '—')
+        try:
+            rc = float(rider.redis_capacity)
+            rm = float(rider.redis_mileage)
+            rider.estimated_range = round(rc * rm, 1)
+        except (ValueError, TypeError):
+            rider.estimated_range = None
+
+        dist_km = None
+        if hasattr(rider, 'dest_distance') and rider.dest_distance is not None:
+            dist_km = round(rider.dest_distance.km, 2)
+        elif trip.destination_point and rider.destination_point:
+            dist_km = round(_haversine_km(trip.destination_point.y, trip.destination_point.x,
+                                          rider.destination_point.y, rider.destination_point.x), 2)
+
+        rider.dist_km = dist_km
+        if dist_km is not None:
+            if dist_km == 0:
+                rider.formatted_dist = "Same Destination (0.0 km)"
+                rider.match_type = "Exact Match"
+            elif dist_km < 1.0:
+                rider.formatted_dist = f"{dist_km * 1000:.0f} m from destination"
+                rider.match_type = "< 1 km"
+            else:
+                rider.formatted_dist = f"{dist_km:.2f} km from destination"
+                rider.match_type = f"{dist_km:.1f} km"
+        else:
+            rider.formatted_dist = "Same Destination"
+            rider.match_type = "Destination Match"
+
+        dest_lat = rider.destination_point.y if rider.destination_point else None
+        dest_lng = rider.destination_point.x if rider.destination_point else None
+        start_lat = rider.starting_point.y if rider.starting_point else None
+        start_lng = rider.starting_point.x if rider.starting_point else None
+
+        co_travelers_json.append({
+            'id': rider.pk,
+            'bikename': rider.bikename,
+            'username': rider.user.username if rider.user else 'anonymous',
+            'starting_name': rider.starting_name,
+            'destination_name': rider.destination_name,
+            'dest_lat': dest_lat,
+            'dest_lng': dest_lng,
+            'start_lat': start_lat,
+            'start_lng': start_lng,
+            'dist_km': dist_km,
+            'formatted_dist': rider.formatted_dist,
+            'match_type': rider.match_type,
+            'is_live': bool(rider.active_session),
+            'live_session_id': rider.active_session.pk if rider.active_session else None,
+            'capacity': rider.redis_capacity,
+            'mileage': rider.redis_mileage,
+            'estimated_range': rider.estimated_range,
+            'created_at': rider.created_at.strftime('%d %b %Y') if rider.created_at else '',
+        })
+
+    dest_lat = trip.destination_point.y if trip.destination_point else None
+    dest_lng = trip.destination_point.x if trip.destination_point else None
 
     return render(request, 'customer_detail.html', {
-        'trip':            trip,
-        'bike_specs':      bike_specs,
-        'estimated_range': estimated_range,
-        'active_session':  active_session,
-        'past_sessions':   past_sessions,
-        'co_travelers':    co_travelers,
+        'trip':              trip,
+        'bike_specs':        bike_specs,
+        'estimated_range':   estimated_range,
+        'active_session':    active_session,
+        'past_sessions':     past_sessions,
+        'co_travelers':      co_travelers,
+        'co_travelers_json': json.dumps(co_travelers_json),
+        'radius_km':         int(radius_km) if radius_km.is_integer() else radius_km,
+        'carto_api_key':     os.environ.get('CARTO_API_KEY', ''),
+        'dest_lat':          dest_lat,
+        'dest_lng':          dest_lng,
     })
 
 
