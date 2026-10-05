@@ -299,6 +299,100 @@
         .btn-find-fuel:hover { background: var(--amber); color: #000; border-color: var(--amber); }
         .btn-find-fuel:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        /* ── GROUP TRIP ACTIVE BANNER ── */
+        .group-trip-banner {
+            background: linear-gradient(135deg, rgba(34,197,94,0.12), rgba(232,99,26,0.12));
+            border: 1px solid rgba(34,197,94,0.35);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+        }
+        .group-banner-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .group-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            color: var(--jade);
+            background: rgba(34,197,94,0.15);
+            border: 1px solid rgba(34,197,94,0.3);
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .group-date {
+            font-size: 0.72rem;
+            color: var(--text-3);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .group-riders-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        .group-rider-card {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--asphalt-3);
+            border: 1px solid var(--border);
+            padding: 8px 14px;
+            border-radius: 6px;
+            flex: 1;
+            min-width: 170px;
+        }
+        .group-rider-avatar {
+            width: 32px;
+            height: 32px;
+            background: var(--accent);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+        .group-role {
+            font-size: 0.62rem;
+            color: var(--text-3);
+            text-transform: uppercase;
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.08em;
+        }
+        .group-username {
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .group-vs-icon {
+            font-size: 16px;
+            color: var(--accent);
+        }
+        .status-pill-accepted {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--jade);
+            background: rgba(34,197,94,0.12);
+            border: 1px solid rgba(34,197,94,0.25);
+            padding: 4px 10px;
+            border-radius: 4px;
+        }
+        .status-pill-pending {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--amber);
+            background: rgba(245,158,11,0.12);
+            border: 1px solid rgba(245,158,11,0.25);
+            padding: 4px 10px;
+            border-radius: 4px;
+        }
+
         .fuel-result { margin-top: 14px; }
         .fuel-stat-row {
             display: flex;
@@ -776,6 +870,9 @@
             <div class="trip-meta-row">
                 <span class="trip-id-tag">TRIP #{{ trip.pk }}</span>
                 <span class="rider-tag">@{{ trip.user.username|default:"anonymous" }}</span>
+                {% if group_conn %}
+                <span class="group-badge">👥 GROUP EXPEDITION</span>
+                {% endif %}
                 {% if active_session %}
                 <span class="live-tag"><span class="live-dot"></span> LIVE</span>
                 {% endif %}
@@ -783,6 +880,33 @@
             <h1 class="trip-title">{{ trip.bikename }}</h1>
             <div class="trip-date">Logged {{ trip.created_at|date:"l, d F Y" }} at {{ trip.created_at|date:"H:i" }}</div>
         </div>
+
+        {% if group_conn %}
+        <!-- Active Group Expedition Banner -->
+        <div class="group-trip-banner">
+            <div class="group-banner-top">
+                <span class="group-badge">👥 GROUP EXPEDITION ACTIVE</span>
+                <span class="group-date">Joined {{ group_conn.updated_at|date:"d M Y" }}</span>
+            </div>
+            <div class="group-riders-row">
+                <div class="group-rider-card">
+                    <div class="group-rider-avatar">👑</div>
+                    <div>
+                        <div class="group-role">Leader / Creator</div>
+                        <div class="group-username">@{{ group_conn.sender.username }}</div>
+                    </div>
+                </div>
+                <div class="group-vs-icon">⚡</div>
+                <div class="group-rider-card">
+                    <div class="group-rider-avatar" style="background:var(--jade); color:#000;">🤝</div>
+                    <div>
+                        <div class="group-role">Riding Partner</div>
+                        <div class="group-username">@{{ group_conn.receiver.username }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Route -->
         <div class="route-strip">
@@ -953,6 +1077,15 @@
                             <a href="{% url 'trip_map' rider.active_session.pk %}" class="btn btn-sm btn-signal" style="font-size:0.75rem; padding:4px 12px;">
                                 <span class="live-beacon-dot"></span> Watch Live
                             </a>
+                            {% endif %}
+                            {% if rider.conn_status == 'accepted' %}
+                            <span class="status-pill-accepted">✓ Group Partner</span>
+                            {% elif rider.conn_status == 'pending' %}
+                            <span class="status-pill-pending">⏳ Invite Pending</span>
+                            {% elif rider.user and rider.user != request.user %}
+                            <button onclick="sendRideInvite({{ rider.user.id }}, {{ trip.pk }}, this)" class="btn btn-sm btn-accent" style="font-size:0.75rem; padding:4px 12px;">
+                                ⚡ Invite to Ride
+                            </button>
                             {% endif %}
                         </div>
                     </div>
@@ -1129,6 +1262,41 @@ async function loadFuelStops() {
         results.innerHTML = `<div style="color:var(--signal); font-size:0.78rem;">Failed: ${e.message}</div>`;
         btn.disabled = false;
         btn.textContent = 'Retry';
+    }
+}
+
+// ── Send Ride Connection Invite ──
+async function sendRideInvite(receiverId, tripId, btn) {
+    if (!receiverId) return;
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = 'Sending…';
+
+    try {
+        const res = await fetch('/connect/send/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({
+                receiver_id: receiverId,
+                trip_id: tripId
+            })
+        });
+        const data = await res.json();
+
+        if (data.status === 'ok') {
+            btn.outerHTML = '<span class="status-pill-pending">⏳ Invite Sent</span>';
+        } else {
+            alert(data.error || 'Failed to send invite.');
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    } catch (err) {
+        alert('Error sending connection request.');
+        btn.disabled = false;
+        btn.textContent = originalText;
     }
 }
 </script>

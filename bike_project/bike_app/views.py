@@ -3,6 +3,7 @@ import math
 import os
 import time
 import requests as http_requests
+from .models import ConnectionRequest
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
@@ -302,42 +303,93 @@ def get_trip_fuel_stops(request, pk):
 # ─── Customer Views ────────────────────────────────────────────────────────────
 
 def customer_list(request):
-    """Home page — user trips vs community trips"""
+    """Home page — user trips vs community trips vs group trips"""
     if not request.user.is_authenticated:
         return redirect('account_login')
 
-    tab = request.GET.get('tab', 'my')  # 'my' = logged-in user trips, 'all' = community trips
-    if tab == 'all':
-        trips_qs = BikeTrip.objects.all().select_related('user')
-    else:
-        trips_qs = BikeTrip.objects.filter(user=request.user).select_related('user')
+    tab = request.GET.get('tab', 'my')  # 'my' = logged-in user trips, 'all' = community trips, 'group' = group trips
 
     my_count = BikeTrip.objects.filter(user=request.user).count()
     all_count = BikeTrip.objects.count()
 
-    trips = list(trips_qs)
+    # Accepted group connections involving current user
+    accepted_conns = ConnectionRequest.objects.filter(
+        Q(sender=request.user) | Q(receiver=request.user),
+        status=ConnectionRequest.STATUS_ACCEPTED
+    ).select_related('sender', 'receiver', 'bike_trip', 'bike_trip__user')
+
+    group_count = accepted_conns.count()
+
+    pending_invitations_count = ConnectionRequest.objects.filter(
+        receiver=request.user,
+        status=ConnectionRequest.STATUS_PENDING
+    ).count()
+
     active_sessions = {
         s.bike_trip.pk: s
         for s in TripSession.objects.filter(status=TripSession.STATUS_ACTIVE).select_related('bike_trip')
     }
-    for trip in trips:
-        trip.active_session = active_sessions.get(trip.pk)  # type: ignore[attr-defined]
-        # Attach Redis specs for table display
-        specs = get_bike_specs(trip.pk)
-        trip.redis_capacity = specs.get('capacity', '—')   # type: ignore[attr-defined]
-        trip.redis_mileage  = specs.get('mileage',  '—')   # type: ignore[attr-defined]
+
+    if tab == 'group':
+        trips = []
+        for conn in accepted_conns:
+            trip = conn.bike_trip
+            trip.group_conn = conn
+            trip.is_group = True
+            trip.rider_leader = conn.sender
+            trip.rider_partner = conn.receiver
+            trip.active_session = active_sessions.get(trip.pk)
+            specs = get_bike_specs(trip.pk)
+            trip.redis_capacity = specs.get('capacity', '—')
+            trip.redis_mileage  = specs.get('mileage',  '—')
+            trips.append(trip)
+    elif tab == 'all':
+        trips_qs = BikeTrip.objects.all().select_related('user')
+        trips = list(trips_qs)
+        for trip in trips:
+            trip.active_session = active_sessions.get(trip.pk)
+            specs = get_bike_specs(trip.pk)
+            trip.redis_capacity = specs.get('capacity', '—')
+            trip.redis_mileage  = specs.get('mileage',  '—')
+    else:
+        trips_qs = BikeTrip.objects.filter(user=request.user).select_related('user')
+        trips = list(trips_qs)
+        for trip in trips:
+            trip.active_session = active_sessions.get(trip.pk)
+            specs = get_bike_specs(trip.pk)
+            trip.redis_capacity = specs.get('capacity', '—')
+            trip.redis_mileage  = specs.get('mileage',  '—')
+
     return render(request, 'customer_list.html', {
         'trips': trips,
         'tab': tab,
         'my_count': my_count,
         'all_count': all_count,
+        'group_count': group_count,
+        'pending_invitations_count': pending_invitations_count,
         'active_count': len(active_sessions),
     })
 
 
 def customer_detail(request, pk):
-    """Full details of a single bike trip record with destination co-traveler radar"""
+    """Full details of a single bike trip record with destination co-traveler radar & group connection"""
     trip = get_object_or_404(BikeTrip, pk=pk)
+
+    # Check if this trip has an accepted group ride connection
+    group_conn = ConnectionRequest.objects.filter(
+        bike_trip=trip,
+        status=ConnectionRequest.STATUS_ACCEPTED
+    ).select_related('sender', 'receiver').first()
+
+    # Map connection statuses with co-travelers for the logged-in user
+    user_conn_status = {}
+    if request.user.is_authenticated:
+        existing_reqs = ConnectionRequest.objects.filter(
+            Q(sender=request.user) | Q(receiver=request.user)
+        )
+        for cr in existing_reqs:
+            other_id = cr.receiver_id if cr.sender_id == request.user.id else cr.sender_id
+            user_conn_status[other_id] = cr.status
 
     # Auto-heal missing coordinates if names exist
     if not trip.destination_point and trip.destination_name:
@@ -381,7 +433,6 @@ def customer_detail(request, pk):
     co_travelers = []
     if trip.destination_point:
         try:
-            # Query destinations within radius km (default 5 km) OR matching destination name/city
             filter_q = Q(
                 destination_point__isnull=False,
                 destination_point__distance_lte=(trip.destination_point, D(km=radius_km))
@@ -453,6 +504,10 @@ def customer_detail(request, pk):
             rider.formatted_dist = "Same Destination"
             rider.match_type = "Destination Match"
 
+        # Attach connection status with this rider
+        rider_user_id = rider.user.id if rider.user else None
+        rider.conn_status = user_conn_status.get(rider_user_id)
+
         dest_lat = rider.destination_point.y if rider.destination_point else None
         dest_lng = rider.destination_point.x if rider.destination_point else None
         start_lat = rider.starting_point.y if rider.starting_point else None
@@ -461,7 +516,9 @@ def customer_detail(request, pk):
         co_travelers_json.append({
             'id': rider.pk,
             'bikename': rider.bikename,
+            'user_id': rider_user_id,
             'username': rider.user.username if rider.user else 'anonymous',
+            'conn_status': rider.conn_status,
             'starting_name': rider.starting_name,
             'destination_name': rider.destination_name,
             'dest_lat': dest_lat,
@@ -484,6 +541,7 @@ def customer_detail(request, pk):
 
     return render(request, 'customer_detail.html', {
         'trip':              trip,
+        'group_conn':        group_conn,
         'bike_specs':        bike_specs,
         'estimated_range':   estimated_range,
         'active_session':    active_session,
@@ -502,10 +560,15 @@ def customer_detail(request, pk):
 def view_route(request, pk):
     """View-only route map for a BikeTrip (no GPS tracking)"""
     trip = get_object_or_404(BikeTrip, pk=pk)
+    group_conn = ConnectionRequest.objects.filter(
+        bike_trip=trip,
+        status=ConnectionRequest.STATUS_ACCEPTED
+    ).select_related('sender', 'receiver').first()
     return render(request, 'trip_map.html', {
         'trip': trip,
         'session': None,
         'view_only': True,
+        'group_conn': group_conn,
         'carto_api_key': os.environ.get('CARTO_API_KEY', ''),
     })
 
@@ -522,8 +585,13 @@ def start_trip(request, pk):
 def trip_map(request, session_pk):
     """Live map page for a trip session"""
     session = get_object_or_404(TripSession, pk=session_pk)
+    group_conn = ConnectionRequest.objects.filter(
+        bike_trip=session.bike_trip,
+        status=ConnectionRequest.STATUS_ACCEPTED
+    ).select_related('sender', 'receiver').first()
     return render(request, 'trip_map.html', {
         'session': session,
+        'group_conn': group_conn,
         'carto_api_key': os.environ.get('CARTO_API_KEY', ''),
     })
 
@@ -721,3 +789,98 @@ def _fetch_and_store_weather(trip: BikeTrip) -> str:
             print(f"Weather fetch failed for {label}:", e)
 
     return ' | '.join(descriptions) if descriptions else 'Weather unavailable'
+
+
+
+# Make sure to import the new model at the top of views.py!
+# from .models import ConnectionRequest
+
+@login_required
+@require_http_methods(["POST"])
+def send_connection_request(request):
+    """API: Send a connection request to another rider."""
+    try:
+        data = json.loads(request.body)
+        receiver_id = data.get('receiver_id')
+        trip_id = data.get('trip_id')
+
+        # Get the target user and trip, return 404 if they don't exist
+        receiver = get_object_or_404(User, pk=receiver_id)
+        bike_trip = get_object_or_404(BikeTrip, pk=trip_id)
+
+        # Prevent sending a request to yourself
+        if request.user == receiver:
+            return JsonResponse({'error': 'You cannot connect with yourself.'}, status=400)
+
+        # get_or_create safely handles the unique_together constraint
+        conn_req, created = ConnectionRequest.objects.get_or_create(
+            sender=request.user,
+            receiver=receiver,
+            bike_trip=bike_trip,
+            defaults={'status': ConnectionRequest.STATUS_PENDING}
+        )
+
+        if not created:
+            return JsonResponse({'error': 'Request already exists.'}, status=400)
+
+        return JsonResponse({'status': 'ok', 'message': 'Request sent successfully!'})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+@require_http_methods(["POST"])
+def respond_connection_request(request, req_id):
+    """API: Accept or reject an incoming request."""
+    conn_req = get_object_or_404(ConnectionRequest, pk=req_id)
+
+    # SECURITY CHECK: Ensure only the intended receiver can accept/reject
+    if request.user != conn_req.receiver:
+        return JsonResponse({'error': 'Unauthorized'}, status=403)
+
+    try:
+        data = json.loads(request.body)
+        action = data.get('action')  # Expected to be 'accept' or 'reject'
+
+        if action == 'accept':
+            conn_req.status = ConnectionRequest.STATUS_ACCEPTED
+            conn_req.save(update_fields=['status', 'updated_at'])
+            return JsonResponse({'status': 'ok', 'message': 'Connection accepted!'})
+        
+        elif action == 'reject':
+            conn_req.status = ConnectionRequest.STATUS_REJECTED
+            conn_req.save(update_fields=['status', 'updated_at'])
+            return JsonResponse({'status': 'ok', 'message': 'Connection rejected.'})
+        
+        else:
+            return JsonResponse({'error': 'Invalid action. Use accept or reject.'}, status=400)
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+def my_invitations(request):
+    """Render an HTML page listing all incoming, accepted, and sent requests for the user."""
+    incoming_requests = ConnectionRequest.objects.filter(
+        receiver=request.user, 
+        status=ConnectionRequest.STATUS_PENDING
+    ).select_related('sender', 'bike_trip')
+
+    sent_requests = ConnectionRequest.objects.filter(
+        sender=request.user
+    ).select_related('receiver', 'bike_trip')
+
+    accepted_requests = ConnectionRequest.objects.filter(
+        Q(sender=request.user) | Q(receiver=request.user),
+        status=ConnectionRequest.STATUS_ACCEPTED
+    ).select_related('sender', 'receiver', 'bike_trip')
+
+    return render(request, 'invitations.html', {
+        'invitations': incoming_requests,
+        'sent_requests': sent_requests,
+        'accepted_requests': accepted_requests,
+        'pending_count': incoming_requests.count(),
+        'accepted_count': accepted_requests.count(),
+    })

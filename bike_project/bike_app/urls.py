@@ -27,6 +27,10 @@ urlpatterns = [
     path('session/<int:session_pk>/data/', views.session_data, name='session_data'),
     path('session/<int:session_pk>/end/', views.end_trip, name='end_trip'),
     
+    # Connection requests
+    path('connect/send/', views.send_connection_request, name='send_connection_request'),
+    path('connect/respond/<int:req_id>/', views.respond_connection_request, name='respond_connection_request'),
+    path('invitations/', views.my_invitations, name='my_invitations'),
     # AI Advisor
     path('customers/<int:pk>/ai-tips/', views.generate_ai_tips, name='generate_ai_tips'),
 

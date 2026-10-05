@@ -82,3 +82,39 @@ class RouteWeather(models.Model):
 
     def __str__(self):
         return f"Weather @ ({self.location.y:.2f}, {self.location.x:.2f}) for Trip #{self.bike_trip_id}"
+
+
+class ConnectionRequest(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_REJECTED = 'rejected'
+    
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    # The user sending the request
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_requests')
+    
+    # The user receiving the request
+    receiver = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_requests')
+    
+    # The specific trip they are connecting about
+    bike_trip = models.ForeignKey(BikeTrip, on_delete=models.CASCADE, related_name='connection_requests')
+    
+    # Track the state of the request
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # Prevent a user from spamming the same person with multiple requests for the same trip
+        unique_together = ('sender', 'receiver', 'bike_trip')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.sender.username} to {self.receiver.username} for trip {self.bike_trip_id} ({self.status})"

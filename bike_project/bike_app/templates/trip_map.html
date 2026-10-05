@@ -230,6 +230,12 @@
     <div class="mode-badge mode-live"><div class="live-dot"></div>LIVE</div>
     {% endif %}
 
+    {% if group_conn %}
+    <div class="mode-badge" style="background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.3); color:var(--jade);">
+        👥 GROUP: @{{ group_conn.sender.username }} & @{{ group_conn.receiver.username }}
+    </div>
+    {% endif %}
+
     <div class="topbar-right">
         <a href="{% if view_only %}{% url 'customer_detail' trip.pk %}{% else %}{% url 'customer_detail' session.bike_trip.pk %}{% endif %}" class="btn btn-sm btn-ghost">← Details</a>
         <button onclick="openAI()" class="btn btn-sm btn-ghost" id="ai-btn">AI Co-Pilot</button>
@@ -266,6 +272,12 @@
 
 <!-- INSTRUMENT PANEL -->
 <div class="instrument">
+    {% if group_conn %}
+    <div style="padding: 7px 18px; background: rgba(34,197,94,0.08); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem;">
+        <span style="color:var(--jade); font-weight:700; font-family:'JetBrains Mono',monospace; letter-spacing:0.06em;">👥 GROUP EXPEDITION</span>
+        <span style="color:var(--text); font-family:'JetBrains Mono',monospace;">👑 @{{ group_conn.sender.username }} <span style="color:var(--accent); margin:0 3px;">⚡</span> 🤝 @{{ group_conn.receiver.username }}</span>
+    </div>
+    {% endif %}
     <div class="instrument-route">
         <div class="inst-endpoint">
             <div class="inst-label">From</div>

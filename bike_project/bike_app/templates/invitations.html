@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ride Invitations — MOTOTRACK</title>
+    <meta name="description" content="Manage ride invitations and group expeditions.">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --asphalt:     #111214;
+            --asphalt-2:   #18191d;
+            --asphalt-3:   #1f2025;
+            --asphalt-4:   #262830;
+            --border:      rgba(255,255,255,0.07);
+            --border-hi:   rgba(255,255,255,0.14);
+            --amber:       #f59e0b;
+            --jade:        #22c55e;
+            --signal:      #f43f5e;
+            --text:        #e8e6e1;
+            --text-2:      #9a9590;
+            --text-3:      #5c5a56;
+            --accent:      #e8631a;
+            --accent-dim:  rgba(232,99,26,0.15);
+        }
+
+        html { font-size: 15px; }
+        body {
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            background: var(--asphalt);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── TOPBAR ── */
+        .topbar {
+            height: 56px;
+            background: var(--asphalt-2);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 28px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-right: 28px;
+        }
+        .brand-mark {
+            width: 30px; height: 30px;
+            border: 2px solid var(--accent);
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+        }
+        .brand-name {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            color: var(--text);
+            text-transform: uppercase;
+        }
+        .topbar-divider { width: 1px; height: 24px; background: var(--border); margin: 0 16px; }
+
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: var(--text-3);
+        }
+        .breadcrumb a { color: var(--text-2); text-decoration: none; }
+        .breadcrumb a:hover { color: var(--text); }
+
+        .topbar-right {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.15s ease;
+        }
+        .btn-sm { font-size: 0.78rem; padding: 6px 14px; border-radius: 6px; }
+        .btn-ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border); }
+        .btn-ghost:hover { color: var(--text); border-color: var(--border-hi); background: var(--asphalt-3); }
+        .btn-accent { background: var(--accent); color: #fff; }
+        .btn-accent:hover { background: #d45515; }
+        .btn-jade { background: rgba(34,197,94,0.15); color: var(--jade); border: 1px solid rgba(34,197,94,0.3); }
+        .btn-jade:hover { background: var(--jade); color: #000; }
+        .btn-danger { background: rgba(244,63,94,0.12); color: var(--signal); border: 1px solid rgba(244,63,94,0.25); }
+        .btn-danger:hover { background: var(--signal); color: #fff; }
+
+        /* ── CONTAINER ── */
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 36px 24px 60px;
+        }
+
+        /* ── HEADER ── */
+        .page-header {
+            margin-bottom: 28px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .header-title-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header-icon {
+            width: 44px; height: 44px;
+            background: var(--asphalt-3);
+            border: 1px solid var(--border-hi);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+        }
+        .page-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text);
+            letter-spacing: -0.02em;
+        }
+        .page-sub {
+            font-size: 0.8rem;
+            color: var(--text-3);
+            margin-top: 2px;
+        }
+
+        /* ── TABS ── */
+        .tab-bar {
+            display: flex;
+            gap: 4px;
+            background: var(--asphalt-2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 4px;
+            margin-bottom: 24px;
+        }
+        .tab-item {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-2);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.15s;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+        }
+        .tab-item:hover { color: var(--text); }
+        .tab-item.active { background: var(--asphalt-3); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
+        .pill-count {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            padding: 2px 7px;
+            border-radius: 10px;
+            background: var(--asphalt-4);
+            color: var(--text-2);
+        }
+        .tab-item.active .pill-count { background: var(--accent); color: #fff; }
+
+        /* ── CARDS ── */
+        .invitations-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .invitation-card {
+            background: var(--asphalt-2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 22px 24px;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 20px;
+            align-items: center;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+        .invitation-card:hover {
+            border-color: var(--border-hi);
+            transform: translateY(-1px);
+        }
+
+        .card-sender {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .sender-avatar {
+            width: 36px; height: 36px;
+            background: linear-gradient(135deg, var(--accent), #f59e0b);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 14px;
+            color: #fff;
+        }
+        .sender-name {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .sender-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .time-ago {
+            font-size: 0.72rem;
+            color: var(--text-3);
+            margin-left: auto;
+        }
+
+        .route-preview {
+            background: var(--asphalt-3);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        .route-loc {
+            font-weight: 600;
+            font-size: 0.88rem;
+            color: var(--text);
+        }
+        .route-arrow {
+            color: var(--accent);
+            font-size: 14px;
+        }
+        .bike-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--asphalt-4);
+            border: 1px solid var(--border);
+            padding: 3px 9px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--text-2);
+        }
+
+        .card-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* ── TOAST ── */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--asphalt-2);
+            border: 1px solid var(--border-hi);
+            border-radius: 8px;
+            padding: 12px 20px;
+            font-size: 0.84rem;
+            color: var(--text);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1000;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* ── EMPTY STATE ── */
+        .empty-box {
+            text-align: center;
+            padding: 60px 20px;
+            background: var(--asphalt-2);
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+        }
+        .empty-icon { font-size: 32px; color: var(--text-3); margin-bottom: 12px; display: inline-block; }
+        .empty-title { font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+        .empty-sub { font-size: 0.8rem; color: var(--text-3); }
+
+        @media (max-width: 680px) {
+            .invitation-card { grid-template-columns: 1fr; }
+            .card-actions { width: 100%; justify-content: flex-start; }
+            .card-actions .btn { flex: 1; justify-content: center; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ── TOPBAR ── -->
+<header class="topbar">
+    <div class="brand">
+        <div class="brand-mark">⬡</div>
+        <span class="brand-name">Mototrack</span>
+    </div>
+    <div class="topbar-divider"></div>
+    <div class="breadcrumb">
+        <a href="{% url 'customer_list' %}">Expeditions</a>
+        <span>/</span>
+        <span style="color:var(--text);">Ride Invitations</span>
+    </div>
+    <div class="topbar-right">
+        <a href="{% url 'customer_list' %}?tab=group" class="btn btn-sm btn-ghost">👥 Group Trips</a>
+        <a href="{% url 'customer_list' %}" class="btn btn-sm btn-ghost">← All Trips</a>
+    </div>
+</header>
+
+<div class="container">
+
+    <div class="page-header">
+        <div class="header-title-wrap">
+            <div class="header-icon">🤝</div>
+            <div>
+                <h1 class="page-title">Ride Invitations & Group Convoy</h1>
+                <p class="page-sub">Connect with co-travelers and coordinate shared routes</p>
+            </div>
+        </div>
+        <a href="{% url 'customer_list' %}?tab=group" class="btn btn-accent btn-sm">View Group Trips →</a>
+    </div>
+
+    <!-- Tab selection -->
+    <div class="tab-bar">
+        <button class="tab-item active" onclick="switchSection('incoming', this)">
+            <span>Incoming Requests</span>
+            <span class="pill-count" id="badge-incoming">{{ invitations|length }}</span>
+        </button>
+        <button class="tab-item" onclick="switchSection('accepted', this)">
+            <span>Accepted Partners</span>
+            <span class="pill-count" id="badge-accepted">{{ accepted_requests|length }}</span>
+        </button>
+        <button class="tab-item" onclick="switchSection('sent', this)">
+            <span>Sent Requests</span>
+            <span class="pill-count">{{ sent_requests|length }}</span>
+        </button>
+    </div>
+
+    <!-- ── INCOMING REQUESTS ── -->
+    <div id="section-incoming" class="tab-content">
+        {% if invitations %}
+        <div class="invitations-list">
+            {% for req in invitations %}
+            <div class="invitation-card" id="req-card-{{ req.pk }}">
+                <div>
+                    <div class="card-sender">
+                        <div class="sender-avatar">{{ req.sender.username|make_list|first|upper }}</div>
+                        <div>
+                            <div class="sender-name">@{{ req.sender.username }}</div>
+                            <span class="sender-tag">Invited you to ride together</span>
+                        </div>
+                        <div class="time-ago">{{ req.created_at|timesince }} ago</div>
+                    </div>
+
+                    <div class="route-preview">
+                        <div>
+                            <div style="font-size:0.65rem; color:var(--text-3); text-transform:uppercase; font-family:'JetBrains Mono',monospace;">Route</div>
+                            <span class="route-loc">{{ req.bike_trip.starting_name }}</span>
+                            <span class="route-arrow">➔</span>
+                            <span class="route-loc">{{ req.bike_trip.destination_name }}</span>
+                        </div>
+                        <div style="margin-left:auto;">
+                            <span class="bike-chip">🏍️ {{ req.bike_trip.bikename }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-actions">
+                    <button onclick="handleResponse({{ req.pk }}, 'accept')" class="btn btn-sm btn-jade" id="btn-accept-{{ req.pk }}">
+                        ✓ Accept & Join Group
+                    </button>
+                    <button onclick="handleResponse({{ req.pk }}, 'reject')" class="btn btn-sm btn-danger" id="btn-reject-{{ req.pk }}">
+                        ✕ Decline
+                    </button>
+                    <a href="{% url 'customer_detail' req.bike_trip.pk %}" class="btn btn-sm btn-ghost">
+                        View Trip
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-box">
+            <span class="empty-icon">📫</span>
+            <div class="empty-title">No pending invitations</div>
+            <div class="empty-sub">When other riders on your route invite you, their requests will appear here.</div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ── ACCEPTED PARTNERS ── -->
+    <div id="section-accepted" class="tab-content" style="display:none;">
+        {% if accepted_requests %}
+        <div class="invitations-list">
+            {% for req in accepted_requests %}
+            <div class="invitation-card">
+                <div>
+                    <div class="card-sender">
+                        <div class="sender-avatar" style="background:var(--jade);">✓</div>
+                        <div>
+                            <div class="sender-name">
+                                {% if req.sender == request.user %}
+                                Connected with @{{ req.receiver.username }}
+                                {% else %}
+                                Connected with @{{ req.sender.username }}
+                                {% endif %}
+                            </div>
+                            <span class="sender-tag" style="color:var(--jade);">Group Ride Active</span>
+                        </div>
+                        <div class="time-ago">{{ req.updated_at|date:"d M Y" }}</div>
+                    </div>
+
+                    <div class="route-preview">
+                        <div>
+                            <div style="font-size:0.65rem; color:var(--text-3); text-transform:uppercase; font-family:'JetBrains Mono',monospace;">Expedition Destination</div>
+                            <span class="route-loc">{{ req.bike_trip.destination_name }}</span>
+                            <span style="color:var(--text-3); font-size:0.75rem; margin-left:8px;">(From {{ req.bike_trip.starting_name }})</span>
+                        </div>
+                        <div style="margin-left:auto;">
+                            <span class="bike-chip">🏍️ {{ req.bike_trip.bikename }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-actions">
+                    <a href="{% url 'customer_detail' req.bike_trip.pk %}" class="btn btn-sm btn-accent">
+                        Open Group Trip →
+                    </a>
+                    <a href="{% url 'view_route' req.bike_trip.pk %}" class="btn btn-sm btn-ghost">
+                        Map Route
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-box">
+            <span class="empty-icon">👥</span>
+            <div class="empty-title">No accepted group rides yet</div>
+            <div class="empty-sub">Accept incoming invitations or invite riders on the Expedition Radar to form a group.</div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ── SENT REQUESTS ── -->
+    <div id="section-sent" class="tab-content" style="display:none;">
+        {% if sent_requests %}
+        <div class="invitations-list">
+            {% for req in sent_requests %}
+            <div class="invitation-card">
+                <div>
+                    <div class="card-sender">
+                        <div class="sender-avatar" style="background:var(--asphalt-3); border:1px solid var(--border);">↗</div>
+                        <div>
+                            <div class="sender-name">Sent to @{{ req.receiver.username }}</div>
+                            <span class="sender-tag" style="color:var(--text-3);">Status: {{ req.status|title }}</span>
+                        </div>
+                        <div class="time-ago">{{ req.created_at|timesince }} ago</div>
+                    </div>
+
+                    <div class="route-preview">
+                        <div>
+                            <span class="route-loc">{{ req.bike_trip.starting_name }}</span>
+                            <span class="route-arrow">➔</span>
+                            <span class="route-loc">{{ req.bike_trip.destination_name }}</span>
+                        </div>
+                        <div style="margin-left:auto;">
+                            <span class="bike-chip">🏍️ {{ req.bike_trip.bikename }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-actions">
+                    <a href="{% url 'customer_detail' req.bike_trip.pk %}" class="btn btn-sm btn-ghost">
+                        View Trip
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-box">
+            <span class="empty-icon">📤</span>
+            <div class="empty-title">No sent invitations</div>
+            <div class="empty-sub">You can invite other riders to ride together directly from any Trip Detail radar!</div>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+
+<!-- ── TOAST ── -->
+<div class="toast" id="toast">
+    <span id="toast-icon">✓</span>
+    <span id="toast-msg">Action completed</span>
+</div>
+
+<script>
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+function showToast(msg, isSuccess=true) {
+    const toast = document.getElementById('toast');
+    const msgEl = document.getElementById('toast-msg');
+    const iconEl = document.getElementById('toast-icon');
+    msgEl.textContent = msg;
+    iconEl.textContent = isSuccess ? '✓' : '⚠';
+    iconEl.style.color = isSuccess ? 'var(--jade)' : 'var(--signal)';
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3500);
+}
+
+function switchSection(sec, btn) {
+    document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
+    document.getElementById(`section-${sec}`).style.display = 'block';
+    btn.classList.add('active');
+}
+
+async function handleResponse(reqId, action) {
+    const acceptBtn = document.getElementById(`btn-accept-${reqId}`);
+    const rejectBtn = document.getElementById(`btn-reject-${reqId}`);
+    const card = document.getElementById(`req-card-${reqId}`);
+    
+    if (acceptBtn) acceptBtn.disabled = true;
+    if (rejectBtn) rejectBtn.disabled = true;
+
+    try {
+        const res = await fetch(`/connect/respond/${reqId}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ action: action })
+        });
+        const data = await res.json();
+
+        if (data.status === 'ok') {
+            showToast(data.message || (action === 'accept' ? 'Connection accepted! Group ride formed.' : 'Request declined.'));
+            if (card) {
+                card.style.opacity = '0.5';
+                card.style.transition = 'all 0.4s';
+                card.style.transform = 'scale(0.96)';
+                setTimeout(() => {
+                    card.remove();
+                    // update count
+                    const badge = document.getElementById('badge-incoming');
+                    if (badge) {
+                        const cur = parseInt(badge.textContent, 10);
+                        if (!isNaN(cur) && cur > 0) badge.textContent = cur - 1;
+                    }
+                }, 400);
+            }
+        } else {
+            showToast(data.error || 'Failed to update request', false);
+            if (acceptBtn) acceptBtn.disabled = false;
+            if (rejectBtn) rejectBtn.disabled = false;
+        }
+    } catch (err) {
+        showToast('Network error while responding.', false);
+        if (acceptBtn) acceptBtn.disabled = false;
+        if (rejectBtn) rejectBtn.disabled = false;
+    }
+}
+</script>
+</body>
+</html>

@@ -355,6 +355,51 @@
             color: var(--text-3);
             font-family: 'JetBrains Mono', monospace;
         }
+        .rider-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .rider-pill.leader {
+            background: rgba(232,99,26,0.12);
+            color: var(--accent);
+            border: 1px solid rgba(232,99,26,0.25);
+        }
+        .rider-pill.partner {
+            background: rgba(34,197,94,0.12);
+            color: var(--jade);
+            border: 1px solid rgba(34,197,94,0.25);
+        }
+        .group-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: rgba(245,158,11,0.12);
+            color: var(--amber);
+            border: 1px solid rgba(245,158,11,0.25);
+            margin-left: 6px;
+        }
+        .badge-bubble {
+            background: var(--accent);
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 10px;
+            margin-left: 5px;
+        }
         .route-cell {
             display: flex;
             align-items: center;
@@ -626,6 +671,12 @@
     <a href="?tab=my" class="nav-item {% if tab != 'all' %}active{% endif %}">Log</a>
     <div class="topbar-divider"></div>
     <div class="topbar-right">
+        <a href="{% url 'my_invitations' %}" class="btn btn-sm btn-ghost" title="Ride Invitations">
+            📫 Invites
+            {% if pending_invitations_count %}
+            <span class="badge-bubble">{{ pending_invitations_count }}</span>
+            {% endif %}
+        </a>
         {% if request.user.is_authenticated %}
         <span class="user-tag">{{ request.user.username|default:request.user.email }}</span>
         {% endif %}
@@ -640,11 +691,19 @@
     <aside class="sidebar">
         <div class="sidebar-section">
             <div class="sidebar-label">Navigation</div>
-            <a href="?tab=my" class="sidebar-link {% if tab != 'all' %}active{% endif %}">
+            <a href="?tab=my" class="sidebar-link {% if tab == 'my' %}active{% endif %}">
                 <span class="sidebar-icon">◈</span> My Trips
+            </a>
+            <a href="?tab=group" class="sidebar-link {% if tab == 'group' %}active{% endif %}">
+                <span class="sidebar-icon">👥</span> Group Trips
+                {% if group_count %}<span class="badge-bubble" style="margin-left:auto; background:var(--jade); color:#000;">{{ group_count }}</span>{% endif %}
             </a>
             <a href="?tab=all" class="sidebar-link {% if tab == 'all' %}active{% endif %}">
                 <span class="sidebar-icon">◉</span> All Routes
+            </a>
+            <a href="{% url 'my_invitations' %}" class="sidebar-link">
+                <span class="sidebar-icon">📫</span> Invitations
+                {% if pending_invitations_count %}<span class="badge-bubble" style="margin-left:auto;">{{ pending_invitations_count }}</span>{% endif %}
             </a>
         </div>
         <div class="sidebar-section">
@@ -703,8 +762,11 @@
         <!-- Toolbar -->
         <div class="toolbar">
             <div class="tab-row">
-                <a href="?tab=my" class="tab-btn {% if tab != 'all' %}active{% endif %}">
+                <a href="?tab=my" class="tab-btn {% if tab == 'my' %}active{% endif %}">
                     My Trips ({{ my_count }})
+                </a>
+                <a href="?tab=group" class="tab-btn {% if tab == 'group' %}active{% endif %}">
+                    👥 Group Trips ({{ group_count }})
                 </a>
                 <a href="?tab=all" class="tab-btn {% if tab == 'all' %}active{% endif %}">
                     All Routes ({{ all_count }})
@@ -744,11 +806,22 @@
                         <td>
                             <div class="bike-name">
                                 {{ trip.bikename }}
+                                {% if trip.is_group %}
+                                <span class="group-tag">👥 GROUP</span>
+                                {% endif %}
                                 {% if trip.active_session %}
                                 <span class="live-tag"><span class="live-dot-sm"></span>LIVE</span>
                                 {% endif %}
                             </div>
+                            {% if trip.is_group %}
+                            <div style="display:flex; align-items:center; gap:5px; margin-top:5px; flex-wrap:wrap;">
+                                <span class="rider-pill leader" title="Expedition Leader">👑 @{{ trip.rider_leader.username }}</span>
+                                <span style="color:var(--text-3); font-size:10px;">⚡</span>
+                                <span class="rider-pill partner" title="Riding Partner">🤝 @{{ trip.rider_partner.username }}</span>
+                            </div>
+                            {% else %}
                             <div class="rider-tag">@{{ trip.user.username|default:"anon" }}</div>
+                            {% endif %}
                         </td>
                         <td>
                             <div class="route-cell">
@@ -777,10 +850,22 @@
             </table>
             {% else %}
             <div class="empty-state">
-                <span class="empty-icon">⊡</span>
-                <div class="empty-title">No trips recorded</div>
-                <div class="empty-sub">Log your first expedition to get started.</div>
+                <span class="empty-icon">{% if tab == 'group' %}👥{% else %}⊡{% endif %}</span>
+                <div class="empty-title">
+                    {% if tab == 'group' %}No group trips active{% else %}No trips recorded{% endif %}
+                </div>
+                <div class="empty-sub">
+                    {% if tab == 'group' %}
+                    Connect with riders heading in your direction to form a group expedition.
+                    {% else %}
+                    Log your first expedition to get started.
+                    {% endif %}
+                </div>
+                {% if tab == 'group' %}
+                <a href="{% url 'my_invitations' %}" class="btn btn-primary" style="margin-top:14px;">Check Invitations →</a>
+                {% else %}
                 <button class="btn btn-primary" onclick="openPanel()">+ Log First Trip</button>
+                {% endif %}
             </div>
             {% endif %}
         </div>
