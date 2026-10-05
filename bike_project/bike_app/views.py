@@ -12,7 +12,8 @@ from django.contrib.gis.measure import D
 from django.contrib.gis.db.models.functions import Distance
 from django.db.models import Q
 from django.contrib.auth.models import User
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, get_user_model
+User = get_user_model()
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth.decorators import login_required
 from dotenv import load_dotenv
@@ -795,6 +796,7 @@ def _fetch_and_store_weather(trip: BikeTrip) -> str:
 @require_http_methods(["POST"])
 def send_connection_request(request):
     """API: Send a connection request to another rider."""
+    User = get_user_model()
     try:
         data = json.loads(request.body)
         receiver_id = data.get('receiver_id')
