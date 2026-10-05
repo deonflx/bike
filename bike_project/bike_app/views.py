@@ -3,8 +3,6 @@ import math
 import os
 import time
 import requests as http_requests
-from .models import ConnectionRequest
-
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -13,6 +11,7 @@ from django.contrib.gis.geos import Point
 from django.contrib.gis.measure import D
 from django.contrib.gis.db.models.functions import Distance
 from django.db.models import Q
+from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth.decorators import login_required
@@ -21,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 # pyrefly: ignore [missing-import]
-from .models import BikeTrip, TripSession, RouteWeather
+from .models import BikeTrip, TripSession, RouteWeather, ConnectionRequest
 # pyrefly: ignore [missing-import]
 from .redis_client import save_bike_specs, get_bike_specs, delete_bike_specs, save_fuel_stops, get_fuel_stops
 # pyrefly: ignore [missing-import]
@@ -791,9 +790,6 @@ def _fetch_and_store_weather(trip: BikeTrip) -> str:
     return ' | '.join(descriptions) if descriptions else 'Weather unavailable'
 
 
-
-# Make sure to import the new model at the top of views.py!
-# from .models import ConnectionRequest
 
 @login_required
 @require_http_methods(["POST"])
