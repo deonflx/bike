@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.gis.geos import Point
-from .models import BikeTrip, TripSession, RouteWeather, ConnectionRequest
-from .redis_client import get_bike_specs
+from bike_app.models import BikeTrip, TripSession, RouteWeather, ConnectionRequest
+from bike_app.redis_client import get_bike_specs
 
 
 # ─── 1. Route Weather Serializer ──────────────────────────────────────────────
