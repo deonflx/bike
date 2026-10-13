@@ -1,8 +1,26 @@
+
 from django.urls import path, include
+from rest_framework import DefaultRouter
+# pyrefly: ignore [missing-import]
+from bike_app.api_views import(
+    BikeTripViewSet,
+    TripSessionViewSet,
+    RouteWeatherViewSet,
+    ConnectionRequestViewSet,)
+
 # pyrefly: ignore [missing-import]
 from . import views
 
+router = DefaultRouter()
+router.register(r'trips', BikeTripViewSet, basename='trip')
+router.register(r'sessions', TripSessionViewSet, basename='session')
+router.register(r'weather', RouteWeatherViewSet, basename='weather')
+router.register(r'connections', ConnectionRequestViewSet, basename='connection')
+
 urlpatterns = [
+    #rest path
+    path('api/', include(router.urls)),
+
     # Allauth URLs
     path('accounts/', include('allauth.urls')),
 
