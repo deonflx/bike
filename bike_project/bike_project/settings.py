@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.sites',
     'django.contrib.gis',
+    'rest_framework',
     
     # Allauth apps
     'allauth',
@@ -202,3 +203,13 @@ ACCOUNT_SIGNUP_FIELDS = ['username*', 'password1*', 'password2*']
 LOGIN_URL = 'account_login'
 LOGIN_REDIRECT_URL = 'customer_list'
 ACCOUNT_LOGOUT_REDIRECT_URL = 'account_login'
+
+REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
+    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
+    ],
+}

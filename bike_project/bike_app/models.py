@@ -19,6 +19,9 @@ class BikeTrip(models.Model):
     starting_point       = gis_models.PointField(srid=4326, null=True, blank=True)
     destination_point    = gis_models.PointField(srid=4326, null=True, blank=True)
 
+    # Route path geometry for route-based matching & corridor queries
+    route_path           = gis_models.LineStringField(srid=4326, null=True, blank=True)
+
     created_at           = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

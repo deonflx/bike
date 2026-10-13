@@ -677,6 +677,70 @@
         }
         @keyframes live-blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
+        .route-match-pill {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            padding: 3px 8px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .direction-pill {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.62rem;
+            font-weight: 600;
+            padding: 2px 7px;
+            border-radius: 3px;
+        }
+        .direction-pill.same {
+            color: var(--jade);
+            background: rgba(34, 197, 94, 0.12);
+            border: 1px solid rgba(34, 197, 94, 0.25);
+        }
+        .direction-pill.opposite {
+            color: var(--amber);
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+        }
+        .convoy-card.has-route-match {
+            border-left: 3px solid #38bdf8;
+            background: rgba(56, 189, 248, 0.015);
+        }
+        .radar-type-tabs {
+            display: flex;
+            gap: 8px;
+            padding: 10px 20px;
+            background: var(--asphalt-2);
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+        }
+        .type-tab-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.64rem;
+            font-weight: 600;
+            padding: 5px 12px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            background: var(--asphalt-3);
+            color: var(--text-3);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .type-tab-btn:hover {
+            color: var(--text);
+            border-color: var(--border-hi);
+        }
+        .type-tab-btn.active {
+            color: #fff;
+            background: rgba(56, 189, 248, 0.2);
+            border-color: #38bdf8;
+        }
+
         .convoy-bike-row {
             display: flex;
             align-items: baseline;
@@ -994,7 +1058,13 @@
                     <span class="radar-hud-val jade">{{ radius_km }} KM RADIUS</span>
                 </div>
                 <div class="radar-hud-cell">
-                    <span class="radar-hud-key">Riders Detected</span>
+                    <span class="radar-hud-key">Route Overlaps</span>
+                    <span class="radar-hud-val" style="color:#38bdf8;">
+                        {{ route_matches_count }} SHARED ROUTE{{ route_matches_count|pluralize:"S" }}
+                    </span>
+                </div>
+                <div class="radar-hud-cell">
+                    <span class="radar-hud-key">Total Detected</span>
                     <span class="radar-hud-val {% if co_travelers %}jade{% endif %}">
                         {{ co_travelers|length }} RIDER{{ co_travelers|length|pluralize:"S" }}
                     </span>
@@ -1002,19 +1072,31 @@
                 <div class="radar-hud-cell">
                     <span class="radar-hud-key">Live Sessions</span>
                     <span class="radar-hud-val amber">
-                        {% with live_count=0 %}
-                            {% for r in co_travelers %}{% if r.active_session %}{% endif %}{% endfor %}
-                            {{ co_travelers|length|yesno:"ACTIVE SCAN,STANDBY" }}
-                        {% endwith %}
+                        {{ co_travelers|length|yesno:"ACTIVE SCAN,STANDBY" }}
                     </span>
                 </div>
+            </div>
+
+            <!-- Interactive Category Filter Tabs -->
+            <div class="radar-type-tabs">
+                <button type="button" class="type-tab-btn active" onclick="filterConvoyCards('all', this)">
+                    All Matches ({{ co_travelers|length }})
+                </button>
+                <button type="button" class="type-tab-btn" onclick="filterConvoyCards('route', this)">
+                    🛣️ Shared Routes ({{ route_matches_count }})
+                </button>
+                <button type="button" class="type-tab-btn" onclick="filterConvoyCards('dest', this)">
+                    🎯 Same Destination ({{ dest_matches_count }})
+                </button>
             </div>
 
             <!-- Convoy List -->
             <div class="radar-cards-list">
                 {% if co_travelers %}
                     {% for rider in co_travelers %}
-                    <div class="convoy-card {% if rider.active_session %}is-live{% endif %}">
+                    <div class="convoy-card {% if rider.active_session %}is-live{% endif %} {% if rider.is_route_match %}has-route-match{% endif %}"
+                         data-is-route="{% if rider.is_route_match %}1{% else %}0{% endif %}"
+                         data-is-dest="{% if rider.dist_km is not None and rider.dist_km <= radius_km or rider.dist_km == 0 %}1{% else %}0{% endif %}">
                         <div class="convoy-card-top">
                             <div class="convoy-rider-info">
                                 <div class="convoy-avatar">@</div>
@@ -1025,6 +1107,14 @@
                                 {% if rider.active_session %}
                                 <span class="live-beacon">
                                     <span class="live-beacon-dot"></span> LIVE ON ROAD
+                                </span>
+                                {% endif %}
+                                {% if rider.is_route_match %}
+                                <span class="route-match-pill">
+                                    🛣️ {{ rider.shared_route_km }} km Shared ({{ rider.overlap_pct }}%)
+                                </span>
+                                <span class="direction-pill {% if rider.is_same_direction %}same{% else %}opposite{% endif %}">
+                                    {% if rider.is_same_direction %}➔ Same Direction{% else %}⇆ Crossing{% endif %}
                                 </span>
                                 {% endif %}
                                 <span class="proximity-pill {% if rider.dist_km == 0 %}exact{% endif %}">
@@ -1043,6 +1133,13 @@
                         </div>
 
                         <div class="convoy-telemetry-row">
+                            {% if rider.shared_route_km > 0 %}
+                            <div class="telemetry-item">
+                                <span style="color:#38bdf8;">Shared Route:</span>
+                                <span class="t-val" style="color:#38bdf8;">{{ rider.shared_route_km }} km</span>
+                            </div>
+                            <span>•</span>
+                            {% endif %}
                             <div class="telemetry-item">
                                 <span>Tank:</span>
                                 <span class="t-val">{{ rider.redis_capacity }} L</span>
@@ -1299,6 +1396,26 @@ async function sendRideInvite(receiverId, tripId, btn) {
         btn.textContent = originalText;
     }
 }
+
+// ── Filter Convoy Cards by Category (All / Route / Dest) ──
+function filterConvoyCards(type, btn) {
+    document.querySelectorAll('.type-tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    const cards = document.querySelectorAll('.convoy-card');
+    cards.forEach(card => {
+        const isRoute = card.getAttribute('data-is-route') === '1';
+        const isDest = card.getAttribute('data-is-dest') === '1';
+
+        if (type === 'all') {
+            card.style.display = 'flex';
+        } else if (type === 'route') {
+            card.style.display = isRoute ? 'flex' : 'none';
+        } else if (type === 'dest') {
+            card.style.display = isDest ? 'flex' : 'none';
+        }
+    });
+}
 </script>
 
 <!-- Leaflet Library -->
@@ -1386,6 +1503,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div style="font-size:12px; font-weight:600; color:#e8631a; margin-top:2px;">${rider.bikename}</div>
                     <div style="font-size:10px; color:#9a9590; margin-top:2px;">${rider.starting_name} ➔ ${rider.destination_name}</div>
+                    ${rider.is_route_match ? `<div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#38bdf8; font-weight:600; margin-top:3px;">🛣️ ${rider.shared_route_km} km shared route (${rider.overlap_pct}%)</div>` : ''}
                     <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#22c55e; font-weight:600; margin-top:4px;">● ${rider.formatted_dist}</div>
                     <div style="margin-top:8px;">
                         <a href="/customers/${rider.id}/" style="display:inline-block; font-size:10px; padding:3px 8px; background:#262830; color:#fff; text-decoration:none; border-radius:3px; border:1px solid rgba(255,255,255,0.1);">View Trip</a>

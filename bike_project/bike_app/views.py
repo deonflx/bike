@@ -7,7 +7,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
-from django.contrib.gis.geos import Point
+from django.contrib.gis.geos import Point, LineString
 from django.contrib.gis.measure import D
 from django.contrib.gis.db.models.functions import Distance
 from django.db.models import Q
@@ -66,6 +66,130 @@ def _haversine_km(lat1, lng1, lat2, lng2):
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def _get_or_create_route_path(trip: BikeTrip):
+    """
+    Ensures trip has a valid LineString route_path.
+    If missing, fetches driving route from OSRM and saves it to PostGIS.
+    """
+    if trip.route_path:
+        return trip.route_path
+    if not (trip.starting_point and trip.destination_point):
+        return None
+    try:
+        start_lng, start_lat = trip.starting_point.x, trip.starting_point.y
+        dest_lng, dest_lat = trip.destination_point.x, trip.destination_point.y
+        osrm_url = (
+            f"http://router.project-osrm.org/route/v1/driving/"
+            f"{start_lng},{start_lat};{dest_lng},{dest_lat}"
+            f"?overview=full&geometries=geojson"
+        )
+        r = http_requests.get(osrm_url, timeout=4.0)
+        data = r.json()
+        if data.get('code') == 'Ok' and data.get('routes'):
+            coords = data['routes'][0]['geometry']['coordinates']
+            if len(coords) >= 2:
+                trip.route_path = LineString(coords, srid=4326)
+                trip.save(update_fields=['route_path'])
+                print(f"[Auto-Heal Route] Saved route_path for Trip #{trip.pk} ({len(coords)} points)")
+                return trip.route_path
+    except Exception as e:
+        print(f"Failed to fetch route geometry for Trip #{trip.pk}: {e}")
+
+    # Fallback: straight-line geometry
+    try:
+        trip.route_path = LineString([
+            [trip.starting_point.x, trip.starting_point.y],
+            [trip.destination_point.x, trip.destination_point.y]
+        ], srid=4326)
+        trip.save(update_fields=['route_path'])
+        return trip.route_path
+    except Exception:
+        return None
+
+
+def _calculate_route_overlap(trip_a: BikeTrip, trip_b: BikeTrip):
+    """
+    Calculates the spatial overlap between two routes using a ~1.5km corridor buffer.
+    Returns a dict with:
+      - shared_km: float (distance in km of shared route)
+      - overlap_pct: float (% of trip_a's route that overlaps with trip_b)
+      - is_same_direction: bool (True if both travel in generally the same direction)
+      - is_match: bool (True if shared_km >= 5 km or overlap >= 20%)
+    """
+    path_a = trip_a.route_path or _get_or_create_route_path(trip_a)
+    path_b = trip_b.route_path or _get_or_create_route_path(trip_b)
+
+    if not path_a or not path_b:
+        return {'shared_km': 0.0, 'overlap_pct': 0.0, 'is_same_direction': False, 'is_match': False}
+
+    try:
+        # 1. Travel direction check (Dot product of start -> end vector)
+        coords_a = list(path_a.coords)
+        coords_b = list(path_b.coords)
+        start_a, dest_a = coords_a[0], coords_a[-1]
+        start_b, dest_b = coords_b[0], coords_b[-1]
+
+        vec_a_x, vec_a_y = dest_a[0] - start_a[0], dest_a[1] - start_a[1]
+        vec_b_x, vec_b_y = dest_b[0] - start_b[0], dest_b[1] - start_b[1]
+
+        mag_a = math.sqrt(vec_a_x**2 + vec_a_y**2)
+        mag_b = math.sqrt(vec_b_x**2 + vec_b_y**2)
+
+        is_same_direction = True
+        if mag_a > 0 and mag_b > 0:
+            cos_sim = (vec_a_x * vec_b_x + vec_a_y * vec_b_y) / (mag_a * mag_b)
+            # >= 0 means angle <= 90 deg (same general travel direction)
+            is_same_direction = cos_sim >= 0.0
+
+        # 2. Corridor buffer intersection in GEOS (0.015 degrees ~= 1.6 km road corridor)
+        corridor_a = path_a.buffer(0.015)
+        intersection = corridor_a.intersection(path_b)
+
+        shared_km = 0.0
+        if not intersection.empty:
+            geom_type = intersection.geom_type
+            if geom_type == 'LineString':
+                icoords = list(intersection.coords)
+                for i in range(len(icoords) - 1):
+                    shared_km += _haversine_km(icoords[i][1], icoords[i][0], icoords[i+1][1], icoords[i+1][0])
+            elif geom_type == 'MultiLineString':
+                for line in intersection:
+                    icoords = list(line.coords)
+                    for i in range(len(icoords) - 1):
+                        shared_km += _haversine_km(icoords[i][1], icoords[i][0], icoords[i+1][1], icoords[i+1][0])
+            elif geom_type == 'GeometryCollection':
+                for geom in intersection:
+                    if geom.geom_type in ('LineString', 'MultiLineString'):
+                        lines = [geom] if geom.geom_type == 'LineString' else list(geom)
+                        for line in lines:
+                            icoords = list(line.coords)
+                            for i in range(len(icoords) - 1):
+                                shared_km += _haversine_km(icoords[i][1], icoords[i][0], icoords[i+1][1], icoords[i+1][0])
+
+        shared_km = round(shared_km, 1)
+
+        # Total distance of path_a
+        total_a_km = 0.0
+        for i in range(len(coords_a) - 1):
+            total_a_km += _haversine_km(coords_a[i][1], coords_a[i][0], coords_a[i+1][1], coords_a[i+1][0])
+
+        overlap_pct = round((shared_km / total_a_km * 100), 1) if total_a_km > 0 else 0.0
+        overlap_pct = min(100.0, overlap_pct)
+
+        # Significant match if shared route is >= 5km OR overlap >= 20% (with at least 2km)
+        is_match = (shared_km >= 5.0) or (overlap_pct >= 20.0 and shared_km >= 2.0)
+
+        return {
+            'shared_km': shared_km,
+            'overlap_pct': overlap_pct,
+            'is_same_direction': is_same_direction,
+            'is_match': is_match,
+        }
+    except Exception as e:
+        print(f"Error computing route overlap: {e}")
+        return {'shared_km': 0.0, 'overlap_pct': 0.0, 'is_same_direction': False, 'is_match': False}
+
+
 def _compute_refuel_point_and_pumps(starting_point, destination_point, capacity, mileage):
     """
     1. Query OSRM for the actual driving route geometry & distance.
@@ -116,31 +240,14 @@ def _compute_refuel_point_and_pumps(starting_point, destination_point, capacity,
                       f'70% fuel range ({refuel_target_km:.1f} km)',
             'total_distance_km': round(total_distance_km, 1),
             'max_range_km': round(max_range_km, 1),
+            'coords': coords,
         }
 
-    # ── Step 3: Walk along route coordinates to find the refuel point ────
-    accumulated_km = 0.0
-    refuel_lat, refuel_lng = None, None
-
-    for i in range(len(coords) - 1):
-        lng1, lat1 = coords[i]
-        lng2, lat2 = coords[i + 1]
-        segment_km = _haversine_km(lat1, lng1, lat2, lng2)
-
-        if accumulated_km + segment_km >= refuel_target_km:
-            # Interpolate within this segment
-            remaining_km = refuel_target_km - accumulated_km
-            fraction = remaining_km / segment_km if segment_km > 0 else 0
-            refuel_lat = lat1 + fraction * (lat2 - lat1)
-            refuel_lng = lng1 + fraction * (lng2 - lng1)
-            break
-
-        accumulated_km += segment_km
-
-    # Safety fallback if loop didn't break (unlikely)
-    if refuel_lat is None:
-        refuel_lat = coords[-1][1]
-        refuel_lng = coords[-1][0]
+    # ── Step 3: Find refuel point along route using GeoDjango GEOS ───────
+    route_line = LineString(coords)
+    fraction = min(refuel_target_km / total_distance_km, 1.0) if total_distance_km > 0 else 0.0
+    refuel_point = route_line.interpolate_normalized(fraction)
+    refuel_lng, refuel_lat = refuel_point.x, refuel_point.y
 
     print(f"[Refuel Point] At {refuel_target_km:.1f} km → "
           f"({refuel_lat:.5f}, {refuel_lng:.5f})")
@@ -203,6 +310,7 @@ def _compute_refuel_point_and_pumps(starting_point, destination_point, capacity,
             'lng': round(refuel_lng, 6),
         },
         'stations': stations,
+        'coords': coords,
     }
 
 
@@ -264,16 +372,20 @@ def bike_submit(request):
         'mileage':  mileage,
     })
 
-    # 5. Pre-calculate 70% refuel point & cache nearby petrol pumps in Redis
+    # 5. Pre-calculate 70% refuel point, cache nearby petrol pumps in Redis, & save route_path
     if starting_point and destination_point:
         try:
             fuel_stop_data = _compute_refuel_point_and_pumps(
                 starting_point, destination_point, capacity, mileage
             )
             save_fuel_stops(trip.id, fuel_stop_data)
-            print(f"[Trip #{trip.id}] Fuel stop data cached in Redis")
+            coords = fuel_stop_data.get('coords')
+            if coords and len(coords) >= 2:
+                trip.route_path = LineString(coords, srid=4326)
+                trip.save(update_fields=['route_path'])
+            print(f"[Trip #{trip.id}] Fuel stop data cached & route_path saved in PostGIS")
         except Exception as e:
-            print(f"[Trip #{trip.id}] Fuel stop computation failed: {e}")
+            print(f"[Trip #{trip.id}] Fuel stop/route computation failed: {e}")
 
     return redirect('customer_list')
 
@@ -418,7 +530,7 @@ def customer_detail(request, pk):
     active_session = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_ACTIVE).first()
     past_sessions  = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_COMPLETED)
 
-    # ── Destination Co-Travelers Query (Same Destination or within radius km) ──
+    # ── Destination & Route Co-Travelers Query ──
     try:
         radius_km = float(request.GET.get('radius', 5.0))
         if radius_km <= 0 or radius_km > 100:
@@ -426,51 +538,107 @@ def customer_detail(request, pk):
     except (ValueError, TypeError):
         radius_km = 5.0
 
+    # Ensure current trip has route geometry for spatial comparison
+    _get_or_create_route_path(trip)
+
     co_query = BikeTrip.objects.exclude(pk=trip.pk).select_related('user')
     dest_clean = (trip.destination_name or '').strip()
     dest_city = dest_clean.split(',')[0].strip()
 
-    co_travelers = []
+    # Query candidates matching destination OR route corridor overlap in PostGIS
+    filter_q = Q()
     if trip.destination_point:
-        try:
-            filter_q = Q(
-                destination_point__isnull=False,
-                destination_point__distance_lte=(trip.destination_point, D(km=radius_km))
-            )
-            if dest_city:
-                filter_q |= Q(destination_name__icontains=dest_city)
-            elif dest_clean:
-                filter_q |= Q(destination_name__iexact=dest_clean)
+        filter_q |= Q(
+            destination_point__isnull=False,
+            destination_point__distance_lte=(trip.destination_point, D(km=radius_km))
+        )
+    if dest_city:
+        filter_q |= Q(destination_name__icontains=dest_city)
+    elif dest_clean:
+        filter_q |= Q(destination_name__iexact=dest_clean)
 
-            co_travelers = list(
+    if trip.route_path:
+        filter_q |= Q(route_path__isnull=False, route_path__bboverlaps=trip.route_path)
+
+    try:
+        if trip.destination_point:
+            raw_candidates = list(
                 co_query.filter(filter_q)
                 .annotate(dest_distance=Distance('destination_point', trip.destination_point))
-                .order_by('dest_distance')
             )
-        except Exception as e:
-            print(f"PostGIS destination query failed: {e}")
-            if dest_city:
-                co_travelers = list(co_query.filter(destination_name__icontains=dest_city))
-            elif dest_clean:
-                co_travelers = list(co_query.filter(destination_name__iexact=dest_clean))
-    else:
-        if dest_city:
-            co_travelers = list(co_query.filter(destination_name__icontains=dest_city))
-        elif dest_clean:
-            co_travelers = list(co_query.filter(destination_name__iexact=dest_clean))
+        else:
+            raw_candidates = list(co_query.filter(filter_q))
+    except Exception as e:
+        print(f"Candidate query fallback: {e}")
+        raw_candidates = list(co_query.all()[:30])
 
-    # Attach live active session & Redis specs for each co-traveler
+    # Attach live active sessions for candidates
     active_co_sessions = {}
-    if co_travelers:
+    if raw_candidates:
         active_co_sessions = {
             s.bike_trip_id: s
             for s in TripSession.objects.filter(
-                bike_trip__in=co_travelers, status=TripSession.STATUS_ACTIVE
+                bike_trip__in=raw_candidates, status=TripSession.STATUS_ACTIVE
             ).select_related('bike_trip')
         }
 
+    co_travelers = []
     co_travelers_json = []
-    for rider in co_travelers:
+    route_matches_count = 0
+    dest_matches_count = 0
+
+    for rider in raw_candidates:
+        # Distance calculation
+        dist_km = None
+        if hasattr(rider, 'dest_distance') and rider.dest_distance is not None:
+            dist_km = round(rider.dest_distance.km, 2)
+        elif trip.destination_point and rider.destination_point:
+            dist_km = round(_haversine_km(trip.destination_point.y, trip.destination_point.x,
+                                          rider.destination_point.y, rider.destination_point.x), 2)
+        rider.dist_km = dist_km
+
+        # ── Route Overlap Calculation ──
+        overlap = _calculate_route_overlap(trip, rider)
+        rider.shared_route_km = overlap['shared_km']
+        rider.overlap_pct = overlap['overlap_pct']
+        rider.is_same_direction = overlap['is_same_direction']
+        rider.is_route_match = overlap['is_match']
+
+        # Determine if this candidate should be included:
+        # Include if destination matches (within radius / exact name) OR significant route overlap
+        is_dest_match = (dist_km is not None and dist_km <= radius_km) or (dest_city and dest_city.lower() in (rider.destination_name or '').lower())
+        if not (is_dest_match or rider.is_route_match):
+            continue
+
+        if rider.is_route_match:
+            route_matches_count += 1
+        if is_dest_match:
+            dest_matches_count += 1
+
+        # Match label & description
+        if dist_km == 0:
+            if rider.is_route_match and rider.shared_route_km > 0:
+                rider.formatted_dist = f"Same Destination • {rider.shared_route_km} km shared route"
+                rider.match_type = "Destination & Route Match"
+            else:
+                rider.formatted_dist = "Same Destination (0.0 km)"
+                rider.match_type = "Exact Match"
+        elif rider.is_route_match:
+            dir_str = "Same Direction" if rider.is_same_direction else "Opposite Direction"
+            rider.formatted_dist = f"{rider.shared_route_km} km Shared Route ({rider.overlap_pct}%) • {dir_str}"
+            rider.match_type = f"Shared Route ({rider.shared_route_km} km)"
+        elif dist_km is not None:
+            if dist_km < 1.0:
+                rider.formatted_dist = f"{dist_km * 1000:.0f} m from destination"
+                rider.match_type = "< 1 km"
+            else:
+                rider.formatted_dist = f"{dist_km:.2f} km from destination"
+                rider.match_type = f"{dist_km:.1f} km"
+        else:
+            rider.formatted_dist = "Same Destination Area"
+            rider.match_type = "Destination Match"
+
+        # Specs & Active Session
         rider.active_session = active_co_sessions.get(rider.pk)
         specs = get_bike_specs(rider.pk)
         rider.redis_capacity = specs.get('capacity', '—')
@@ -482,29 +650,7 @@ def customer_detail(request, pk):
         except (ValueError, TypeError):
             rider.estimated_range = None
 
-        dist_km = None
-        if hasattr(rider, 'dest_distance') and rider.dest_distance is not None:
-            dist_km = round(rider.dest_distance.km, 2)
-        elif trip.destination_point and rider.destination_point:
-            dist_km = round(_haversine_km(trip.destination_point.y, trip.destination_point.x,
-                                          rider.destination_point.y, rider.destination_point.x), 2)
-
-        rider.dist_km = dist_km
-        if dist_km is not None:
-            if dist_km == 0:
-                rider.formatted_dist = "Same Destination (0.0 km)"
-                rider.match_type = "Exact Match"
-            elif dist_km < 1.0:
-                rider.formatted_dist = f"{dist_km * 1000:.0f} m from destination"
-                rider.match_type = "< 1 km"
-            else:
-                rider.formatted_dist = f"{dist_km:.2f} km from destination"
-                rider.match_type = f"{dist_km:.1f} km"
-        else:
-            rider.formatted_dist = "Same Destination"
-            rider.match_type = "Destination Match"
-
-        # Attach connection status with this rider
+        # Connection status
         rider_user_id = rider.user.id if rider.user else None
         rider.conn_status = user_conn_status.get(rider_user_id)
 
@@ -513,6 +659,7 @@ def customer_detail(request, pk):
         start_lat = rider.starting_point.y if rider.starting_point else None
         start_lng = rider.starting_point.x if rider.starting_point else None
 
+        co_travelers.append(rider)
         co_travelers_json.append({
             'id': rider.pk,
             'bikename': rider.bikename,
@@ -528,6 +675,10 @@ def customer_detail(request, pk):
             'dist_km': dist_km,
             'formatted_dist': rider.formatted_dist,
             'match_type': rider.match_type,
+            'shared_route_km': rider.shared_route_km,
+            'overlap_pct': rider.overlap_pct,
+            'is_same_direction': rider.is_same_direction,
+            'is_route_match': rider.is_route_match,
             'is_live': bool(rider.active_session),
             'live_session_id': rider.active_session.pk if rider.active_session else None,
             'capacity': rider.redis_capacity,
@@ -536,22 +687,35 @@ def customer_detail(request, pk):
             'created_at': rider.created_at.strftime('%d %b %Y') if rider.created_at else '',
         })
 
+    # Sort co-travelers: prioritize exact matches and high shared route km
+    co_travelers.sort(
+        key=lambda r: (
+            1 if (getattr(r, 'dist_km', None) == 0) else 0,
+            getattr(r, 'shared_route_km', 0),
+            1 if getattr(r, 'is_route_match', False) else 0,
+            -(getattr(r, 'dist_km', None) or 9999)
+        ),
+        reverse=True
+    )
+
     dest_lat = trip.destination_point.y if trip.destination_point else None
     dest_lng = trip.destination_point.x if trip.destination_point else None
 
     return render(request, 'customer_detail.html', {
-        'trip':              trip,
-        'group_conn':        group_conn,
-        'bike_specs':        bike_specs,
-        'estimated_range':   estimated_range,
-        'active_session':    active_session,
-        'past_sessions':     past_sessions,
-        'co_travelers':      co_travelers,
-        'co_travelers_json': json.dumps(co_travelers_json),
-        'radius_km':         int(radius_km) if radius_km.is_integer() else radius_km,
-        'carto_api_key':     os.environ.get('CARTO_API_KEY', ''),
-        'dest_lat':          dest_lat,
-        'dest_lng':          dest_lng,
+        'trip':                trip,
+        'group_conn':          group_conn,
+        'bike_specs':          bike_specs,
+        'estimated_range':     estimated_range,
+        'active_session':      active_session,
+        'past_sessions':       past_sessions,
+        'co_travelers':        co_travelers,
+        'co_travelers_json':   json.dumps(co_travelers_json),
+        'route_matches_count': route_matches_count,
+        'dest_matches_count':  dest_matches_count,
+        'radius_km':           int(radius_km) if radius_km.is_integer() else radius_km,
+        'carto_api_key':       os.environ.get('CARTO_API_KEY', ''),
+        'dest_lat':            dest_lat,
+        'dest_lng':            dest_lng,
     })
 
 
