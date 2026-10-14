@@ -58,6 +58,11 @@ class TripSessionSerializer(serializers.ModelSerializer):
     current_lng = serializers.ReadOnlyField()
     is_active = serializers.ReadOnlyField()
     bikename = serializers.ReadOnlyField(source='bike_trip.bikename')
+    starting_name = serializers.ReadOnlyField(source='bike_trip.starting_name')
+    destination_name = serializers.ReadOnlyField(source='bike_trip.destination_name')
+    start_coords = serializers.SerializerMethodField()
+    dest_coords = serializers.SerializerMethodField()
+    route_coords = serializers.SerializerMethodField()
 
     # Write-only input fields for phone/browser GPS pings (PATCH / PUT)
     lat = serializers.FloatField(write_only=True, required=False)
@@ -69,16 +74,37 @@ class TripSessionSerializer(serializers.ModelSerializer):
             'id',
             'bike_trip',
             'bikename',
+            'starting_name',
+            'destination_name',
             'status',
             'is_active',
             'current_lat',
             'current_lng',
+            'start_coords',
+            'dest_coords',
+            'route_coords',
             'lat',
             'lng',
             'started_at',
             'updated_at',
         ]
         read_only_fields = ['id', 'started_at', 'updated_at']
+
+    def get_start_coords(self, obj):
+        if obj.bike_trip and obj.bike_trip.starting_point:
+            return {'lat': obj.bike_trip.starting_point.y, 'lng': obj.bike_trip.starting_point.x}
+        return None
+
+    def get_dest_coords(self, obj):
+        if obj.bike_trip and obj.bike_trip.destination_point:
+            return {'lat': obj.bike_trip.destination_point.y, 'lng': obj.bike_trip.destination_point.x}
+        return None
+
+    def get_route_coords(self, obj):
+        if obj.bike_trip and obj.bike_trip.route_path:
+            # PostGIS LineString coords are (lng, lat) -> convert to Leaflet's [lat, lng]
+            return [[pt[1], pt[0]] for pt in obj.bike_trip.route_path.coords]
+        return []
 
     def update(self, instance, validated_data):
         lat = validated_data.pop('lat', None)
