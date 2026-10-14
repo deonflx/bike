@@ -76,9 +76,81 @@ def get_fuel_stops(trip_id: int) -> dict:
     return {}
 
 
+# ─── AI Advice / Tips & Summaries ───────────────────────────────────────────
+
+def _ai_tips_key(trip_id: int) -> str:
+    return f"trip:{trip_id}:ai_tips"
+
+
+def save_ai_tips(trip_id: int, html_content: str, ttl: int = SPECS_TTL) -> None:
+    """
+    Cache generated AI advice HTML for a trip.
+    """
+    key = _ai_tips_key(trip_id)
+    _redis.set(key, html_content)
+    _redis.expire(key, ttl)
+
+
+def get_ai_tips(trip_id: int) -> str | None:
+    """
+    Retrieve cached AI advice HTML from Redis.
+    Returns None if not found.
+    """
+    return _redis.get(_ai_tips_key(trip_id))
+
+
+def _ai_summary_key(trip_id: int) -> str:
+    return f"trip:{trip_id}:ai_summary"
+
+
+def save_ai_summary(trip_id: int, html_content: str, ttl: int = SPECS_TTL) -> None:
+    """
+    Cache generated AI summary HTML for a trip.
+    """
+    key = _ai_summary_key(trip_id)
+    _redis.set(key, html_content)
+    _redis.expire(key, ttl)
+
+
+def get_ai_summary(trip_id: int) -> str | None:
+    """
+    Retrieve cached AI summary HTML from Redis.
+    Returns None if not found.
+    """
+    return _redis.get(_ai_summary_key(trip_id))
+
+
+def _ai_weather_key(trip_id: int) -> str:
+    return f"trip:{trip_id}:ai_weather"
+
+
+def save_ai_weather(trip_id: int, weather_text: str, ttl: int = SPECS_TTL) -> None:
+    """
+    Cache route weather text for a trip in Redis (separated from specs).
+    """
+    key = _ai_weather_key(trip_id)
+    _redis.set(key, weather_text)
+    _redis.expire(key, ttl)
+
+
+def get_ai_weather(trip_id: int) -> str | None:
+    """
+    Retrieve cached route weather text from Redis.
+    """
+    return _redis.get(_ai_weather_key(trip_id))
+
+
 # ─── Cleanup ──────────────────────────────────────────────────────────────────
 
 def delete_bike_specs(trip_id: int) -> None:
-    """Remove all Redis keys for a trip — called when a trip is deleted."""
+    """Remove all Redis cache keys for a trip — called when a trip is deleted."""
     _redis.delete(_specs_key(trip_id))
     _redis.delete(_fuel_stops_key(trip_id))
+    _redis.delete(_ai_tips_key(trip_id))
+    _redis.delete(_ai_summary_key(trip_id))
+    _redis.delete(_ai_weather_key(trip_id))
+
+
+delete_trip_cache = delete_bike_specs
+
+

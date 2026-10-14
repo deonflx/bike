@@ -1,6 +1,6 @@
 
 from django.urls import path, include
-from rest_framework import DefaultRouter
+from rest_framework.routers import DefaultRouter
 # pyrefly: ignore [missing-import]
 from bike_app.api_views import(
     BikeTripViewSet,

@@ -10,6 +10,8 @@ class BikeTrip(models.Model):
     """
     user                 = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trips', null=True, blank=True)
     bikename             = models.CharField(max_length=100)
+    capacity             = models.FloatField(null=True, blank=True, help_text="Fuel tank capacity in liters")
+    mileage              = models.FloatField(null=True, blank=True, help_text="Average mileage in km/l")
 
     # Human-readable location labels
     starting_name        = models.CharField(max_length=200, default='')

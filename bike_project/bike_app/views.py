@@ -23,12 +23,32 @@ load_dotenv(override=True)
 # pyrefly: ignore [missing-import]
 from .models import BikeTrip, TripSession, RouteWeather, ConnectionRequest
 # pyrefly: ignore [missing-import]
-from .redis_client import save_bike_specs, get_bike_specs, delete_bike_specs, save_fuel_stops, get_fuel_stops
+from .redis_client import (
+    save_bike_specs, get_bike_specs, delete_bike_specs,
+    save_fuel_stops, get_fuel_stops,
+    save_ai_tips, get_ai_tips,
+    save_ai_summary, get_ai_summary,
+    save_ai_weather, get_ai_weather,
+    delete_trip_cache,
+)
 # pyrefly: ignore [missing-import]
 from .ai_helper import generate_content
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _attach_spec_display(trip):
+    """Template-friendly capacity/mileage from Postgres (legacy redis_* names)."""
+    trip.redis_capacity = trip.capacity if trip.capacity is not None else '—'
+    trip.redis_mileage = trip.mileage if trip.mileage is not None else '—'
+    return trip
+
+
+def _trip_capacity_mileage(trip, default_capacity=15.0, default_mileage=35.0):
+    capacity = trip.capacity if trip.capacity is not None else default_capacity
+    mileage = trip.mileage if trip.mileage is not None else default_mileage
+    return float(capacity), float(mileage)
+
 
 def _geocode(place_name: str):
     """
@@ -353,19 +373,19 @@ def bike_submit(request):
     except Exception as e:
         print("Gemini spec lookup failed:", e)
         capacity = 15.0
-        mileage  = 35.0
-
-    # 3. Save slim trip to PostGIS (location only)
+    # 3. Save trip with bike specs to PostGIS
     trip = BikeTrip.objects.create(
         user              = request.user if request.user.is_authenticated else None,
         bikename          = bikename,
+        capacity          = capacity,
+        mileage           = mileage,
         starting_name     = starting_name,
         destination_name  = destination_name,
         starting_point    = starting_point,
         destination_point = destination_point,
     )
 
-    # 4. Save bike specs to Redis
+    # 4. Save bike specs to Redis (as read cache)
     save_bike_specs(trip.id, {
         'bikename': bikename,
         'capacity': capacity,
@@ -451,26 +471,20 @@ def customer_list(request):
             trip.rider_leader = conn.sender
             trip.rider_partner = conn.receiver
             trip.active_session = active_sessions.get(trip.pk)
-            specs = get_bike_specs(trip.pk)
-            trip.redis_capacity = specs.get('capacity', '—')
-            trip.redis_mileage  = specs.get('mileage',  '—')
+            _attach_spec_display(trip)
             trips.append(trip)
     elif tab == 'all':
         trips_qs = BikeTrip.objects.all().select_related('user')
         trips = list(trips_qs)
         for trip in trips:
             trip.active_session = active_sessions.get(trip.pk)
-            specs = get_bike_specs(trip.pk)
-            trip.redis_capacity = specs.get('capacity', '—')
-            trip.redis_mileage  = specs.get('mileage',  '—')
+            _attach_spec_display(trip)
     else:
         trips_qs = BikeTrip.objects.filter(user=request.user).select_related('user')
         trips = list(trips_qs)
         for trip in trips:
             trip.active_session = active_sessions.get(trip.pk)
-            specs = get_bike_specs(trip.pk)
-            trip.redis_capacity = specs.get('capacity', '—')
-            trip.redis_mileage  = specs.get('mileage',  '—')
+            _attach_spec_display(trip)
 
     return render(request, 'customer_list.html', {
         'trips': trips,
@@ -515,17 +529,13 @@ def customer_detail(request, pk):
             trip.starting_point = pt
             trip.save(update_fields=['starting_point'])
 
-    # Fetch bike specs from Redis
-    bike_specs = get_bike_specs(trip.pk)
-    try:
-        capacity = float(bike_specs.get('capacity', 0))
-    except (ValueError, TypeError):
-        capacity = 0.0
-    try:
-        mileage = float(bike_specs.get('mileage', 0))
-    except (ValueError, TypeError):
-        mileage = 0.0
+    # Fetch bike specs from Postgres
+    capacity, mileage = _trip_capacity_mileage(trip, default_capacity=0.0, default_mileage=0.0)
     estimated_range = capacity * mileage if capacity and mileage else 0
+    bike_specs = {
+        'capacity': capacity,
+        'mileage': mileage,
+    }
 
     active_session = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_ACTIVE).first()
     past_sessions  = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_COMPLETED)
@@ -640,14 +650,10 @@ def customer_detail(request, pk):
 
         # Specs & Active Session
         rider.active_session = active_co_sessions.get(rider.pk)
-        specs = get_bike_specs(rider.pk)
-        rider.redis_capacity = specs.get('capacity', '—')
-        rider.redis_mileage  = specs.get('mileage',  '—')
-        try:
-            rc = float(rider.redis_capacity)
-            rm = float(rider.redis_mileage)
-            rider.estimated_range = round(rc * rm, 1)
-        except (ValueError, TypeError):
+        _attach_spec_display(rider)
+        if rider.capacity is not None and rider.mileage is not None:
+            rider.estimated_range = round(float(rider.capacity) * float(rider.mileage), 1)
+        else:
             rider.estimated_range = None
 
         # Connection status
@@ -803,10 +809,10 @@ def end_trip(request, session_pk):
 
 
 def delete_trip(request, pk):
-    """Delete a BikeTrip, its sessions, and its Redis specs"""
+    """Delete a BikeTrip, its sessions, and all its Redis cache keys"""
     trip = get_object_or_404(BikeTrip, pk=pk)
     if request.method == 'POST':
-        delete_bike_specs(trip.pk)   # clean up Redis
+        delete_trip_cache(trip.pk)   # clean up Redis cache (ai_tips, ai_summary, ai_weather, fuel_stops, specs)
         trip.delete()
         return redirect('customer_list')
     return redirect('customer_detail', pk=pk)
@@ -816,18 +822,29 @@ def delete_trip(request, pk):
 
 @csrf_exempt
 def generate_ai_tips(request, pk):
-    """API: Generate AI tips for the live map (uses Redis specs)"""
+    """API: Generate AI tips for the live map (uses Redis cache first)"""
     if request.method != 'POST':
         return JsonResponse({'error': 'POST only'}, status=405)
 
-    trip       = get_object_or_404(BikeTrip, pk=pk)
-    bike_specs = get_bike_specs(trip.pk)
-    capacity   = float(bike_specs.get('capacity', 15))
-    mileage    = float(bike_specs.get('mileage',  35))
+    trip = get_object_or_404(BikeTrip, pk=pk)
+
+    try:
+        data = json.loads(request.body) if request.body else {}
+    except Exception:
+        data = {}
+
+    force_refresh = data.get('refresh', False) or request.GET.get('refresh') == 'true'
+
+    # Check Redis cache first
+    if not force_refresh:
+        cached_html = get_ai_tips(trip.pk)
+        if cached_html:
+            return JsonResponse({'status': 'ok', 'html': cached_html, 'cached': True})
+
+    capacity, mileage = _trip_capacity_mileage(trip)
     max_range  = capacity * mileage
 
     try:
-        data              = json.loads(request.body)
         distance          = data.get('distance', 0)
         duration_mins     = data.get('duration', 0)
         weather_conditions = data.get('weather', [])
@@ -848,7 +865,11 @@ Provide a detailed advisory covering:
         import markdown  # pyrefly: ignore [missing-import]
         response_text = generate_content(prompt)
         html = markdown.markdown(response_text)
-        return JsonResponse({'status': 'ok', 'html': html})
+
+        # Cache in Redis so future clicks load instantly without API calls
+        save_ai_tips(trip.pk, html)
+
+        return JsonResponse({'status': 'ok', 'html': html, 'cached': False})
 
     except Exception as e:
         import traceback; traceback.print_exc()
@@ -860,23 +881,32 @@ Provide a detailed advisory covering:
 def generate_customer_summary(request, pk):
     """
     API: Generate AI summary for the customer detail page.
-    - Reads bike specs from Redis
-    - Reads/writes weather to PostGIS RouteWeather
-    - Caches computed fuel/time insights back to Redis
+    - Checks Redis AI-summary cache first
+    - Reads bike specs from Postgres
+    - Uses Redis AI-weather cache (separated from specs)
+    - Caches AI summary in Redis
     """
-    trip       = get_object_or_404(BikeTrip, pk=pk)
-    bike_specs = get_bike_specs(trip.pk)
-    capacity   = float(bike_specs.get('capacity', 15))
-    mileage    = float(bike_specs.get('mileage',  35))
+    trip = get_object_or_404(BikeTrip, pk=pk)
+
+    force_refresh = request.GET.get('refresh') == 'true'
+    if not force_refresh:
+        cached_summary = get_ai_summary(trip.pk)
+        if cached_summary:
+            return JsonResponse({'status': 'ok', 'html': cached_summary, 'cached': True})
+
+    capacity, mileage = _trip_capacity_mileage(trip)
 
     try:
-        # --- Weather: check PostGIS cache first ---
-        cached_weather = RouteWeather.objects.filter(bike_trip=trip)
-        if cached_weather.exists():
-            weather_text = ' | '.join(w.description for w in cached_weather)
-        else:
-            # Sample weather at start, midpoint, and destination using Open-Meteo
-            weather_text = _fetch_and_store_weather(trip)
+        # Check Redis weather cache first (separated from specs)
+        weather_text = get_ai_weather(trip.pk)
+        if not weather_text:
+            cached_weather = RouteWeather.objects.filter(bike_trip=trip)
+            if cached_weather.exists():
+                weather_text = ' | '.join(w.description for w in cached_weather)
+            else:
+                # Sample weather at start, midpoint, and destination using Open-Meteo
+                weather_text = _fetch_and_store_weather(trip)
+            save_ai_weather(trip.pk, weather_text)
 
         # --- Ask Gemini for full summary ---
         prompt = f"""
@@ -894,12 +924,11 @@ Return a concise HTML snippet (use <b>, <br>, <ul>, <li> only — no markdown, n
         response_text = generate_content(prompt)
         html = response_text.replace('```html', '').replace('```', '').strip()
 
-        # --- Cache AI-derived numbers back to Redis ---
-        save_bike_specs(trip.pk, {
-            'ai_weather':   weather_text[:200],  # truncated summary
-        })
+        # Cache AI summary and AI weather in Redis (pure cache)
+        save_ai_summary(trip.pk, html)
+        save_ai_weather(trip.pk, weather_text)
 
-        return JsonResponse({'status': 'ok', 'html': html})
+        return JsonResponse({'status': 'ok', 'html': html, 'cached': False})
 
     except Exception as e:
         import traceback; traceback.print_exc()

@@ -137,6 +137,8 @@ class BikeTripSerializer(serializers.ModelSerializer):
             'user',
             'owner_username',
             'bikename',
+            'capacity',
+            'mileage',
             'starting_name',
             'destination_name',
             'starting_coords',
@@ -157,5 +159,15 @@ class BikeTripSerializer(serializers.ModelSerializer):
         return None
 
     def get_specs(self, obj):
-        """Fetches bike specs stored in Redis under trip:<id>:specs"""
-        return get_bike_specs(obj.id)
+        """Returns bike specs from Postgres model (with Redis fallback if needed)"""
+        capacity = obj.capacity
+        mileage = obj.mileage
+        if capacity is None or mileage is None:
+            r_specs = get_bike_specs(obj.id)
+            capacity = capacity if capacity is not None else r_specs.get('capacity')
+            mileage = mileage if mileage is not None else r_specs.get('mileage')
+        return {
+            'bikename': obj.bikename,
+            'capacity': capacity,
+            'mileage': mileage,
+        }

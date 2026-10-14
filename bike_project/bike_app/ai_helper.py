@@ -19,9 +19,12 @@ def generate_content(prompt: str) -> str:
     try:
         # 1. Try Gemini
         from google import genai  # pyrefly: ignore [missing-import]
-        client = genai.Client()
+        api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("No Gemini API key found. Set GOOGLE_API_KEY in .env")
+        client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=prompt
         )
         return response.text
