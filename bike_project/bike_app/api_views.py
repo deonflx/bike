@@ -25,7 +25,7 @@ from .redis_client import (
     save_ai_tips, get_ai_tips,
     delete_trip_cache,
 )
-from .ai_helper import generate_content
+from .ai_helper import generate_content, get_bike_specs_from_ai
 from .views import (
     _geocode,
     _trip_capacity_mileage,
@@ -63,23 +63,10 @@ class BikeTripViewSet(viewsets.ModelViewSet):
         time.sleep(1.0)
         destination_point = _geocode(destination_name) if destination_name else None
 
-        # 2. Query Gemini for capacity & mileage
-        capacity = 15.0
-        mileage = 35.0
-        try:
-            prompt = (
-                f"Return the average fuel tank capacity (liters) and average mileage (km/l) "
-                f"for the motorcycle model '{bikename}'. "
-                f"Return ONLY a JSON object with keys 'capacity' and 'mileage'. "
-                f"Example: {{\"capacity\": 15, \"mileage\": 35}}"
-            )
-            resp = generate_content(prompt)
-            raw = resp.replace('```json', '').replace('```', '').strip()
-            specs = json.loads(raw)
-            capacity = float(specs.get('capacity', 15))
-            mileage = float(specs.get('mileage', 35))
-        except Exception as e:
-            print(f"[API] Gemini spec lookup fallback: {e}")
+        # 2. Query specs (referring to 100_popular_bikes_india CSV via AI, with fallback)
+        specs = get_bike_specs_from_ai(bikename)
+        capacity = float(specs.get('capacity', 15.0))
+        mileage = float(specs.get('mileage', 35.0))
 
         # 3. Save instance with spatial points & specs
         user = self.request.user if self.request.user.is_authenticated else None

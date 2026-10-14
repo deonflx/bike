@@ -31,8 +31,7 @@ from .redis_client import (
     save_ai_weather, get_ai_weather,
     delete_trip_cache,
 )
-# pyrefly: ignore [missing-import]
-from .ai_helper import generate_content
+from .ai_helper import generate_content, get_bike_specs_from_ai
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -357,22 +356,10 @@ def bike_submit(request):
     time.sleep(1.2)
     destination_point = _geocode(destination_name)
 
-    # 2. Fetch bike specs via Gemini/OpenAI (will go to Redis)
-    try:
-        prompt = (
-            f"Return the average fuel tank capacity (liters) and average mileage (km/l) "
-            f"for the motorcycle model '{bikename}'. "
-            f"Return ONLY a JSON object with keys 'capacity' and 'mileage'. "
-            f"Example: {{\"capacity\": 15, \"mileage\": 35}}"
-        )
-        response_text = generate_content(prompt)
-        raw_text = response_text.replace('```json', '').replace('```', '').strip()
-        specs    = json.loads(raw_text)
-        capacity = float(specs.get('capacity', 15))
-        mileage  = float(specs.get('mileage', 35))
-    except Exception as e:
-        print("Gemini spec lookup failed:", e)
-        capacity = 15.0
+    # 2. Fetch bike specs (referring to 100_popular_bikes_india CSV via AI, with fallback)
+    specs    = get_bike_specs_from_ai(bikename)
+    capacity = float(specs.get('capacity', 15.0))
+    mileage  = float(specs.get('mileage', 35.0))
     # 3. Save trip with bike specs to PostGIS
     trip = BikeTrip.objects.create(
         user              = request.user if request.user.is_authenticated else None,
