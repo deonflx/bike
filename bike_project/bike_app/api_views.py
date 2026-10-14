@@ -22,6 +22,7 @@ from .redis_client import (
     save_fuel_stops, get_fuel_stops,
     save_ai_summary, get_ai_summary,
     save_ai_weather, get_ai_weather,
+    save_ai_tips, get_ai_tips,
     delete_trip_cache,
 )
 from .ai_helper import generate_content
@@ -178,6 +179,47 @@ Return a concise HTML snippet (use <b>, <br>, <ul>, <li> only — no markdown, n
             save_ai_summary(trip.pk, html)
             save_ai_weather(trip.pk, weather_text)
 
+            return Response({'status': 'ok', 'html': html, 'cached': False})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='ai_tips')
+    def ai_tips(self, request, pk=None):
+        """Generate or retrieve cached AI advice / tips for route map"""
+        trip = self.get_object()
+        data = request.data or {}
+        force_refresh = data.get('refresh', False) or request.query_params.get('refresh') == 'true'
+
+        if not force_refresh:
+            cached_html = get_ai_tips(trip.pk)
+            if cached_html:
+                return Response({'status': 'ok', 'html': cached_html, 'cached': True})
+
+        capacity, mileage = _trip_capacity_mileage(trip)
+        max_range = capacity * mileage
+
+        try:
+            distance = data.get('distance', 0)
+            duration_mins = data.get('duration', 0)
+            weather_conditions = data.get('weather', [])
+
+            weather_text = ', '.join(weather_conditions) if weather_conditions else 'Unknown weather'
+            prompt = f"""
+You are an expert motorcycle touring advisor.
+Bike: {trip.bikename} | From: {trip.starting_name} → {trip.destination_name}
+Distance: {distance} km | Drive time: {duration_mins} min
+Tank: {capacity}L | Mileage: {mileage} km/l | Max range: {max_range:.0f} km
+Weather: {weather_text}
+
+Provide a detailed advisory covering:
+1. Total estimated fuel cost (₹113/L assumed)
+2. Total trip time with a break schedule
+3. Route & safety advice given the weather
+"""
+            import markdown
+            response_text = generate_content(prompt)
+            html = markdown.markdown(response_text)
+            save_ai_tips(trip.pk, html)
             return Response({'status': 'ok', 'html': html, 'cached': False})
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

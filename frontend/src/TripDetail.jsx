@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import './App.css';
 import api from './api';
 
 function TripDetail() {
@@ -10,19 +11,39 @@ function TripDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // AI Summary state
+  // AI Co-Pilot Summary state
   const [aiSummary, setAiSummary] = useState(null);
-  const [generatingAi, setGeneratingAi] = useState(false);
+  const [loadingAi, setLoadingAi] = useState(true);
+  const [aiError, setAiError] = useState(null);
 
-  // Fuel Stops (Redis) state
+  // Fuel Stops state
   const [fuelData, setFuelData] = useState(null);
+  const [loadingFuel, setLoadingFuel] = useState(false);
+  const [fuelLoaded, setFuelLoaded] = useState(false);
 
   // Co-Travelers state
   const [coTravelers, setCoTravelers] = useState([]);
-  const [loadingCoTravelers, setLoadingCoTravelers] = useState(true);
+  const [activeTab, setActiveTab] = useState('all');
 
-  // Session starting state
+  // Session state
   const [startingSession, setStartingSession] = useState(false);
+
+  const fetchAiSummary = (forceRefresh = false) => {
+    setLoadingAi(true);
+    setAiError(null);
+    const url = forceRefresh ? `/trips/${id}/generate_summary/?refresh=true` : `/trips/${id}/generate_summary/`;
+
+    api.post(url)
+      .then((res) => {
+        setAiSummary(res.data.html);
+        setLoadingAi(false);
+      })
+      .catch((err) => {
+        console.error('AI summary error:', err);
+        setAiError('Failed to load AI summary.');
+        setLoadingAi(false);
+      });
+  };
 
   useEffect(() => {
     // 1. Fetch trip details
@@ -37,24 +58,39 @@ function TripDetail() {
         setLoading(false);
       });
 
-    // 2. Fetch pre-calculated fuel stops from Redis
-    api.get(`/trips/${id}/fuel_stops/`)
-      .then((res) => setFuelData(res.data))
-      .catch((err) => console.log('No fuel data:', err));
+    // 2. Auto-load AI summary
+    fetchAiSummary(false);
 
-    // 3. Fetch matching co-travelers
-    api.get(`/trips/${id}/co_travelers/`)
+    // 3. Check if pre-calculated fuel stops exist in Redis (don't auto-load)
+    api.get(`/trips/${id}/fuel_stops/`)
       .then((res) => {
-        setCoTravelers(res.data);
-        setLoadingCoTravelers(false);
+        if (res.data && res.data.needed !== undefined) {
+          setFuelData(res.data);
+          setFuelLoaded(true);
+        }
       })
-      .catch((err) => {
-        console.error('Co-travelers error:', err);
-        setLoadingCoTravelers(false);
-      });
+      .catch((err) => console.log('Fuel stops check:', err));
+
+    // 4. Fetch matching co-travelers
+    api.get(`/trips/${id}/co_travelers/`)
+      .then((res) => setCoTravelers(res.data || []))
+      .catch((err) => console.error('Co-travelers error:', err));
   }, [id]);
 
-  // Start Live Tracking Session
+  const fetchFuelStops = () => {
+    setLoadingFuel(true);
+    api.get(`/trips/${id}/fuel_stops/`)
+      .then((res) => {
+        setFuelData(res.data);
+        setFuelLoaded(true);
+        setLoadingFuel(false);
+      })
+      .catch((err) => {
+        console.error('Fuel stops error:', err);
+        setLoadingFuel(false);
+      });
+  };
+
   const handleStartTrip = () => {
     setStartingSession(true);
     api.post(`/trips/${id}/start_session/`)
@@ -68,209 +104,343 @@ function TripDetail() {
       });
   };
 
-  // Generate AI Summary with Gemini + Weather
-  const handleGenerateSummary = () => {
-    setGeneratingAi(true);
-    api.post(`/trips/${id}/generate_summary/`)
-      .then((res) => {
-        setAiSummary(res.data.html);
-        setGeneratingAi(false);
+  const handleDelete = () => {
+    if (!window.confirm(`Delete expedition for ${trip.bikename}?`)) return;
+    api.delete(`/trips/${id}/`)
+      .then(() => {
+        navigate('/');
       })
       .catch((err) => {
         console.error(err);
-        alert('Failed to generate AI summary.');
-        setGeneratingAi(false);
+        alert('Failed to delete trip.');
       });
   };
 
-  // Send group connection request to another rider
-  const handleConnect = (receiverId) => {
+  const handleConnect = (riderId) => {
     api.post('/connections/', {
-      receiver: receiverId,
+      receiver: riderId,
       bike_trip: parseInt(id),
     })
-      .then(() => {
-        alert('Ride invitation sent!');
-      })
-      .catch((err) => {
-        console.error(err);
-        alert('Failed to send connection request or already sent.');
-      });
+      .then(() => alert('Ride invitation dispatched!'))
+      .catch((err) => alert('Connection request already sent or error occurred.'));
   };
 
-  if (loading) return <div style={{ padding: '30px' }}>Loading trip details...</div>;
-  if (error) return <div style={{ padding: '30px', color: 'red' }}>{error}</div>;
+  if (loading) return (
+    <div style={{ display: 'grid', placeItems: 'center', minHeight: '60vh', color: 'var(--text-3)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="ai-spinner"></div> Loading expedition telemetries…
+      </div>
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ padding: '40px', textAlign: 'center', color: 'var(--signal)' }}>{error}</div>
+  );
+
   if (!trip) return null;
 
+  const capacity = trip.specs?.capacity || 15;
+  const mileage = trip.specs?.mileage || 35;
+  const estimatedRange = (capacity * mileage).toFixed(0);
+
+  const filteredTravelers = coTravelers.filter((rider) => {
+    if (activeTab === 'route') return rider.shared_route_km > 0;
+    if (activeTab === 'dest') return rider.dist_km === 0 || (rider.dist_km !== null && rider.dist_km <= 50);
+    return true;
+  });
+
   return (
-    <div style={{ maxWidth: '750px', margin: '30px auto', fontFamily: 'system-ui, sans-serif' }}>
-      <Link to="/" style={{ color: '#007bff', textDecoration: 'none', fontWeight: 'bold' }}>
-        ← Back to All Trips
-      </Link>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px' }}>
-        <h1 style={{ margin: 0 }}>🏍️ {trip.bikename}</h1>
-        <button
-          onClick={handleStartTrip}
-          disabled={startingSession}
-          style={{
-            background: '#28a745',
-            color: 'white',
-            border: 'none',
-            padding: '10px 18px',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            fontSize: '1rem'
-          }}
-        >
-          {startingSession ? 'Launching...' : '🚀 Start Live Trip'}
-        </button>
-      </div>
-
-      {/* ─── 1. ROUTE INFO ─────────────────────────────────────────── */}
-      <div style={{ background: '#f8f9fa', padding: '18px', borderRadius: '8px', border: '1px solid #e9ecef', marginTop: '20px' }}>
-        <h3 style={{ margin: '0 0 10px 0' }}>📍 Route</h3>
-        <p style={{ margin: '4px 0' }}><strong>Starting Point:</strong> {trip.starting_name}</p>
-        {trip.starting_coords && (
-          <p style={{ color: '#666', fontSize: '0.85em', margin: '0 0 8px 16px' }}>
-            GPS: {trip.starting_coords.lat.toFixed(4)}, {trip.starting_coords.lng.toFixed(4)}
-          </p>
-        )}
-
-        <p style={{ margin: '4px 0' }}><strong>Destination:</strong> {trip.destination_name}</p>
-        {trip.destination_coords && (
-          <p style={{ color: '#666', fontSize: '0.85em', margin: '0 0 8px 16px' }}>
-            GPS: {trip.destination_coords.lat.toFixed(4)}, {trip.destination_coords.lng.toFixed(4)}
-          </p>
-        )}
-      </div>
-
-      {/* ─── 2. REDIS BIKE SPECS & REFUEL ──────────────────────────── */}
-      <div style={{ background: '#eef9f1', padding: '18px', borderRadius: '8px', border: '1px solid #ccebd4', marginTop: '16px' }}>
-        <h3 style={{ color: '#1b5e20', margin: '0 0 10px 0' }}>⚡ Bike Specs & Fuel Stop (Redis)</h3>
-        {trip.specs ? (
-          <div>
-            <p style={{ margin: '4px 0' }}><strong>Fuel Tank Capacity:</strong> {trip.specs.capacity || 15} L</p>
-            <p style={{ margin: '4px 0' }}><strong>Average Mileage:</strong> {trip.specs.mileage || 35} km/l</p>
-            <p style={{ margin: '4px 0' }}>
-              <strong>Estimated Max Range:</strong> {((trip.specs.capacity || 15) * (trip.specs.mileage || 35)).toFixed(0)} km
-            </p>
-
-            {fuelData && fuelData.needed && (
-              <div style={{ marginTop: '12px', padding: '10px', background: '#ffffff', borderRadius: '6px' }}>
-                <h4 style={{ margin: '0 0 6px 0', color: '#e65100' }}>⛽ Suggested Refuel Stop</h4>
-                <p style={{ margin: '2px 0', fontSize: '0.9em' }}>
-                  Target Refuel Distance: <strong>{fuelData.refuel_distance_km} km</strong> (Search radius: {fuelData.search_radius_km} km)
-                </p>
-                {fuelData.stations && fuelData.stations.length > 0 ? (
-                  <ul style={{ margin: '6px 0 0 0', paddingLeft: '20px', fontSize: '0.9em' }}>
-                    {fuelData.stations.slice(0, 3).map((station, i) => (
-                      <li key={i}>{station.name} ({station.brand}) — ~{station.distance_km} km off-route</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p style={{ fontSize: '0.85em', color: '#666', margin: '4px 0 0 0' }}>Scanning route for petrol pumps...</p>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <p style={{ color: '#666', margin: 0 }}>No specs cached in Redis yet.</p>
-        )}
-      </div>
-
-      {/* ─── 3. AI ADVISOR & WEATHER ───────────────────────────────── */}
-      <div style={{ background: '#f3e5f5', padding: '18px', borderRadius: '8px', border: '1px solid #e1bee7', marginTop: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ color: '#4a148c', margin: 0 }}>✨ AI Touring Advisor & Weather</h3>
-          <button
-            onClick={handleGenerateSummary}
-            disabled={generatingAi}
-            style={{
-              background: '#6a1b9a',
-              color: 'white',
-              border: 'none',
-              padding: '6px 12px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-            }}
-          >
-            {generatingAi ? 'Analyzing Route...' : 'Generate AI Summary'}
+    <div>
+      {/* ── TOPBAR ── */}
+      <nav className="topbar">
+        <Link to="/" className="brand">
+          <div className="brand-mark">⚡</div>
+          <span className="brand-name">MOTOTRACK</span>
+        </Link>
+        <div className="topbar-divider"></div>
+        <div className="breadcrumb">
+          <Link to="/">Logbook</Link>
+          <span className="breadcrumb-sep">/</span>
+          <span style={{ color: 'var(--text)' }}>{trip.bikename}</span>
+        </div>
+        <div className="topbar-right">
+          <button className="btn btn-sm btn-danger" onClick={handleDelete}>
+            Delete
           </button>
         </div>
+      </nav>
 
-        {aiSummary ? (
-          <div
-            style={{ marginTop: '14px', background: 'white', padding: '14px', borderRadius: '6px', lineHeight: '1.6' }}
-            dangerouslySetInnerHTML={{ __html: aiSummary }}
-          />
-        ) : (
-          <p style={{ color: '#555', fontSize: '0.9em', marginTop: '10px', marginBottom: 0 }}>
-            Click above to have Gemini AI analyze weather, compute estimated fuel cost at ₹113/L, and plan break schedules.
-          </p>
-        )}
-      </div>
+      {/* ── 2-COLUMN PAGE LAYOUT (matching customer_detail.html) ── */}
+      <div className="page">
+        {/* MAIN COLUMN */}
+        <div className="col-main">
+          {/* TRIP HEADER */}
+          <div className="trip-header">
+            <div className="trip-meta-row">
+              <span className="trip-id-tag">EXPEDITION #{trip.id}</span>
+              <span className="rider-tag">OPERATOR: @{trip.owner_username || 'anonymous'}</span>
+            </div>
+            <h1 className="trip-title">{trip.bikename}</h1>
+            <div className="trip-date">
+              Logged on {new Date(trip.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </div>
+          </div>
 
-      {/* ─── 4. CO-TRAVELERS & GROUP RIDES ─────────────────────────── */}
-      <div style={{ background: '#fff3e0', padding: '18px', borderRadius: '8px', border: '1px solid #ffe0b2', marginTop: '16px' }}>
-        <h3 style={{ color: '#e65100', margin: '0 0 10px 0' }}>👥 Co-Travelers & Shared Routes</h3>
-
-        {loadingCoTravelers && <p style={{ margin: 0, color: '#666' }}>Finding nearby riders...</p>}
-
-        {!loadingCoTravelers && coTravelers.length === 0 && (
-          <p style={{ margin: 0, color: '#666' }}>No other riders heading on this route right now.</p>
-        )}
-
-        <div style={{ display: 'grid', gap: '10px', marginTop: '10px' }}>
-          {coTravelers.map((rider) => (
-            <div
-              key={rider.id}
-              style={{
-                background: 'white',
-                padding: '12px',
-                borderRadius: '6px',
-                border: '1px solid #ffd180',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}
-            >
-              <div>
-                <strong style={{ fontSize: '1rem' }}>{rider.bikename}</strong>
-                <div style={{ fontSize: '0.85em', color: '#555', marginTop: '2px' }}>
-                  To: {rider.destination_name} • {rider.dist_km !== null ? `${rider.dist_km} km away` : 'Matching area'}
-                </div>
-                {rider.shared_route_km > 0 && (
-                  <div style={{ fontSize: '0.8em', color: '#2e7d32', fontWeight: 'bold' }}>
-                    🛣️ {rider.shared_route_km} km shared route ({rider.overlap_pct}%)
-                  </div>
-                )}
-                {rider.is_live && (
-                  <span style={{ fontSize: '0.75em', background: '#28a745', color: 'white', padding: '2px 6px', borderRadius: '4px' }}>
-                    🟢 LIVE RIDING NOW
-                  </span>
-                )}
+          {/* ROUTE STRIP */}
+          <div className="route-strip">
+            <div className="route-node">
+              <div className="route-node-label">From</div>
+              <div className="route-node-val">{trip.starting_name}</div>
+            </div>
+            <div className="route-connector">
+              <div className="connector-line">
+                <span className="connector-arrow">▶</span>
               </div>
+            </div>
+            <div className="route-node" style={{ textAlign: 'right' }}>
+              <div className="route-node-label">To</div>
+              <div className="route-node-val">{trip.destination_name}</div>
+            </div>
+          </div>
 
+          {/* ACTION BUTTONS (Exact HTML classes: btn-jade, btn-ghost) */}
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              onClick={handleStartTrip}
+              disabled={startingSession}
+              className="btn btn-sm btn-jade"
+            >
+              {startingSession ? 'Launching Radar…' : '▶ Start Trip'}
+            </button>
+
+            <Link
+              to={`/trips/${id}/route`}
+              className="btn btn-sm btn-ghost"
+            >
+              View Route
+            </Link>
+          </div>
+
+          {/* AI CO-PILOT BLOCK (Exact HTML structure: .block.ai-block) */}
+          <div className="block ai-block">
+            <div className="block-head">
+              <span className="block-title" style={{ color: 'var(--accent)' }}>AI Co-Pilot</span>
               <button
-                onClick={() => handleConnect(rider.id)}
-                style={{
-                  background: '#ff9800',
-                  color: 'white',
-                  border: 'none',
-                  padding: '6px 12px',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  fontSize: '0.85em'
-                }}
+                className="btn btn-sm btn-ghost"
+                style={{ fontSize: '0.68rem', padding: '3px 9px' }}
+                onClick={() => fetchAiSummary(true)}
+                disabled={loadingAi}
               >
-                Connect
+                {loadingAi ? 'Analyzing…' : '🔄 Refresh AI'}
               </button>
             </div>
-          ))}
+            <div className="ai-body">
+              {loadingAi ? (
+                <div className="ai-loader">
+                  <div className="ai-spinner"></div>
+                  Analyzing route conditions, live weather, and engine specs…
+                </div>
+              ) : aiError ? (
+                <span style={{ color: 'var(--signal)' }}>{aiError}</span>
+              ) : (
+                <div dangerouslySetInnerHTML={{ __html: aiSummary }} />
+              )}
+            </div>
+          </div>
+
+          {/* EXPEDITION RADAR / CO-TRAVELERS BLOCK (Exact HTML classes: .radar-block) */}
+          <div className="radar-block">
+            <div className="radar-head">
+              <div className="radar-title-group">
+                <div className="radar-title-tag">
+                  <span className="live-dot" style={{ display: 'inline-block', marginRight: '6px' }}></span>
+                  Expedition Radar // Same Destination
+                </div>
+                <div className="radar-sub">
+                  Riders travelling to <strong>{trip.destination_name}</strong> or sharing route corridors
+                </div>
+              </div>
+            </div>
+
+            {/* RADAR FILTER TABS */}
+            <div style={{ display: 'flex', gap: '12px', padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <button
+                className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+                onClick={() => setActiveTab('all')}
+              >
+                All Matches ({coTravelers.length})
+              </button>
+              <button
+                className={`tab-btn ${activeTab === 'route' ? 'active' : ''}`}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+                onClick={() => setActiveTab('route')}
+              >
+                🛣️ Shared Routes ({coTravelers.filter(r => r.shared_route_km > 0).length})
+              </button>
+              <button
+                className={`tab-btn ${activeTab === 'dest' ? 'active' : ''}`}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+                onClick={() => setActiveTab('dest')}
+              >
+                🎯 Same Destination
+              </button>
+            </div>
+
+            {/* CONVOY CARDS LIST */}
+            <div className="radar-cards-list">
+              {filteredTravelers.length > 0 ? (
+                filteredTravelers.map((rider) => (
+                  <div key={rider.id} className="convoy-card">
+                    <div className="convoy-top">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="rider-tag">@{rider.username || 'anonymous'}</span>
+                        <span className="trip-id-tag">TRIP #{rider.id}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {rider.is_live && <span className="live-tag">LIVE ON ROAD</span>}
+                        {rider.shared_route_km > 0 && (
+                          <span className="spec-tag" style={{ color: 'var(--jade)', borderColor: 'rgba(34,197,94,0.3)' }}>
+                            🛣️ {rider.shared_route_km} km Shared
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="convoy-bike-title">{rider.bikename}</div>
+                    <div className="convoy-route">
+                      {rider.starting_name} ➔ {rider.destination_name}
+                    </div>
+
+                    <div className="convoy-meta">
+                      {rider.dist_km !== null ? `${rider.dist_km} km from destination` : 'Matching area'}
+                      {rider.overlap_pct ? ` • ${rider.overlap_pct}% corridor overlap` : ''}
+                    </div>
+
+                    <div className="convoy-actions">
+                      <Link to={`/trips/${rider.id}`} className="btn btn-sm btn-ghost" style={{ fontSize: '0.72rem', padding: '4px 10px' }}>
+                        View Trip
+                      </Link>
+                      <button
+                        onClick={() => handleConnect(rider.id)}
+                        className="btn btn-sm btn-accent"
+                        style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                      >
+                        ⚡ Invite to Ride
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="radar-empty">
+                  No matching riders currently on this corridor. You are leading the pack!
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* SIDE COLUMN */}
+        <div className="col-side">
+          {/* RANGE READOUT (Exact HTML class: .range-readout) */}
+          <div className="block">
+            <div className="block-head">
+              <span className="block-title">Estimated Range</span>
+            </div>
+            <div className="block-body">
+              <div className="range-readout">
+                <div className="range-num">{estimatedRange}</div>
+                <div className="range-unit">km on full tank</div>
+              </div>
+            </div>
+          </div>
+
+          {/* SPECS BLOCK (Exact HTML classes: .spec-row, .spec-key, .spec-val) */}
+          <div className="block">
+            <div className="block-head">
+              <span className="block-title">Machine Specs</span>
+            </div>
+            <div className="block-body" style={{ padding: '0 17px' }}>
+              <div className="spec-row">
+                <span className="spec-key">Tank Capacity</span>
+                <span className="spec-val accent">{capacity} L</span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-key">Avg Mileage</span>
+                <span className="spec-val jade">{mileage} km/L</span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-key">Max Range</span>
+                <span className="spec-val">{estimatedRange} km</span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-key">Database Store</span>
+                <span className="spec-val" style={{ color: 'var(--amber)' }}>PostGIS + Redis</span>
+              </div>
+              <div className="spec-row">
+                <span className="spec-key">Record ID</span>
+                <span className="spec-val">#{trip.id}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* FUEL STOPS (matching template: .fuel-block with btn-find-fuel) */}
+          <div className="block fuel-block">
+            <div className="block-head">
+              <span className="block-title">Fuel Stops</span>
+              <button
+                className="btn-find-fuel"
+                onClick={fetchFuelStops}
+                disabled={loadingFuel}
+              >
+                {loadingFuel ? '…' : fuelLoaded ? 'Refresh' : 'Find'}
+              </button>
+            </div>
+            <div className="block-body" style={{ padding: '12px 20px' }}>
+              {!fuelLoaded && !loadingFuel && (
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-3)', lineHeight: 1.5 }}>
+                  Find the optimal refueling point at 70% of your tank range, with nearby stations from Overpass API.
+                </div>
+              )}
+              {loadingFuel && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-3)' }}>Locating fuel stops…</div>
+              )}
+              {fuelLoaded && fuelData && (
+                fuelData.needed === false ? (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--jade)' }}>
+                    ✓ No refuel stop needed — your range covers the full route.
+                  </div>
+                ) : (
+                  <div>
+                    <div className="fuel-stat-row">
+                      <span className="fuel-stat-key">Refuel at</span>
+                      <span className="fuel-stat-val amber">{fuelData.refuel_distance_km} km</span>
+                    </div>
+                    <div className="fuel-stat-row">
+                      <span className="fuel-stat-key">Search Radius</span>
+                      <span className="fuel-stat-val">{fuelData.search_radius_km} km</span>
+                    </div>
+                    {fuelData.stations && fuelData.stations.length > 0 && (
+                      <div className="fuel-result">
+                        <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--text-3)', letterSpacing: '0.08em', marginBottom: '8px' }}>
+                          Overpass Petrol Stations:
+                        </div>
+                        {fuelData.stations.slice(0, 3).map((st, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                            <div>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 600 }}>{st.name || 'Petrol Pump'}</div>
+                              <div style={{ fontSize: '0.68rem', color: 'var(--text-3)' }}>{st.brand || 'Fuel Station'}</div>
+                            </div>
+                            <span className="spec-tag" style={{ color: 'var(--jade)' }}>{st.distance_km} km</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
