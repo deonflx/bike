@@ -137,7 +137,7 @@ function TripList({ isClerkConfigured }) {
 
     api.delete(`/trips/${tripId}/`)
       .then(() => {
-        setTrips(trips.filter((t) => t.id !== tripId));
+        setTrips((prev) => prev.filter((t) => t.id !== tripId));
       })
       .catch((err) => {
         console.error(err);
@@ -147,6 +147,9 @@ function TripList({ isClerkConfigured }) {
   };
 
   const filteredTrips = trips.filter((t) => {
+    if (activeTab === 'my' && !canDeleteTrip(t)) return false;
+    if (activeTab === 'group' && !t.whatsapp_group_link) return false;
+
     const term = searchTerm.toLowerCase();
     const matchesSearch =
       (t.bikename && t.bikename.toLowerCase().includes(term)) ||
@@ -246,7 +249,27 @@ function TripList({ isClerkConfigured }) {
           {/* TOOLBAR */}
           <div className="toolbar">
             <div className="tab-row">
-              <span className="tab-btn active">Active Logs ({filteredTrips.length})</span>
+              <button
+                className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+                onClick={() => setActiveTab('all')}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                All Logs ({trips.length})
+              </button>
+              <button
+                className={`tab-btn ${activeTab === 'my' ? 'active' : ''}`}
+                onClick={() => setActiveTab('my')}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                My Expeditions
+              </button>
+              <button
+                className={`tab-btn ${activeTab === 'group' ? 'active' : ''}`}
+                onClick={() => setActiveTab('group')}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                Convoys
+              </button>
             </div>
 
             <div className="search-wrap ml-auto">

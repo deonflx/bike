@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
+import DOMPurify from 'dompurify';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 import api from './api';
@@ -55,9 +56,17 @@ const refuelIcon = L.divIcon({
   popupAnchor: [0, -10],
 });
 
+const escapeHtml = (str) =>
+  String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
 const createStationIcon = (name, dist) =>
   L.divIcon({
-    html: `<div class="station-pip"><div class="station-pip-name">⛽ ${name}</div><div class="station-pip-dist">${dist} km</div></div>`,
+    html: `<div class="station-pip"><div class="station-pip-name">⛽ ${escapeHtml(name)}</div><div class="station-pip-dist">${escapeHtml(dist)} km</div></div>`,
     className: '',
     iconAnchor: [50, 40],
     popupAnchor: [0, -30],
@@ -65,7 +74,7 @@ const createStationIcon = (name, dist) =>
 
 const createWxIcon = (city, emoji, temp, wind) =>
   L.divIcon({
-    html: `<div class="wx-pip"><div class="wx-city">${city}</div><div class="wx-data">${emoji} ${temp}°C <span style="color:var(--text-3);font-size:10px;">💨${wind}</span></div></div>`,
+    html: `<div class="wx-pip"><div class="wx-city">${escapeHtml(city)}</div><div class="wx-data">${escapeHtml(emoji)} ${escapeHtml(temp)}°C <span style="color:var(--text-3);font-size:10px;">💨${escapeHtml(wind)}</span></div></div>`,
     className: '',
     iconAnchor: [40, 50],
     popupAnchor: [0, -40],
@@ -389,28 +398,12 @@ function LiveTracking({ viewOnly = false }) {
         setAiLoading(false);
       })
       .catch((err) => {
-        console.error('AI Tips DRF failed, trying django direct:', err);
-        // Fallback to customer ai-tips endpoint
-        fetch(`/customers/${targetTripId}/ai-tips/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            distance: routeDistKm,
-            duration: routeDurMins,
-            weather: currentWx,
-            refresh: forceRefresh,
-          }),
-        })
-          .then((r) => r.json())
-          .then((data) => {
-            setAiHtml(data.html || data.error);
-            setAiLoaded(true);
-            setAiLoading(false);
-          })
-          .catch((e) => {
-            setAiHtml(`<div style="color:var(--signal);">Failed to load Trip Advice: ${e.message}</div>`);
-            setAiLoading(false);
-          });
+        console.error('AI Tips DRF failed:', err);
+        const errMsg = err.response?.data?.error || err.response?.data?.detail || err.message || 'Failed to load Trip Advice.';
+        setAiHtml('');
+        setAiLoaded(false);
+        setAiLoading(false);
+        showToast(`AI Advisory: ${errMsg}`, 4000);
       });
   };
 
@@ -444,8 +437,9 @@ function LiveTracking({ viewOnly = false }) {
         }
       })
       .catch((err) => {
-        console.error(err);
+        console.error('Fuel stops fetch error:', err);
         setFuelLoading(false);
+        showToast('Unable to load fuel stops for this route.', 3500);
       });
   };
 
@@ -545,6 +539,8 @@ function LiveTracking({ viewOnly = false }) {
     if (!window.confirm('Conclude active live expedition?')) return;
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+      setTracking(false);
     }
     api.post(`/sessions/${sessionId}/end_session/`)
       .then((res) => {
@@ -562,15 +558,20 @@ function LiveTracking({ viewOnly = false }) {
   const handleSetWhatsAppLink = () => {
     const currentLink = convoy?.whatsapp_group_link || '';
     const newLink = window.prompt(
-      'Paste WhatsApp Group Invite Link (e.g. https://chat.whatsapp.com/...) so all convoy riders share this chat:',
+      'Paste WhatsApp Group Invite Link (must start with https://chat.whatsapp.com/):',
       currentLink
     );
     if (newLink === null) return;
+    const trimmed = newLink.trim();
+    if (trimmed && !trimmed.startsWith('https://chat.whatsapp.com/')) {
+      alert('Invalid link! WhatsApp group link must begin with https://chat.whatsapp.com/');
+      return;
+    }
     const endpoint = sessionId
       ? `/sessions/${sessionId}/set_whatsapp_link/`
       : `/trips/${tripId || id}/set_whatsapp_link/`;
 
-    api.post(endpoint, { whatsapp_group_link: newLink.trim() })
+    api.post(endpoint, { whatsapp_group_link: trimmed })
       .then((res) => {
         showToast('✅ WhatsApp link saved! All convoy riders share this group chat.');
         if (res.data.convoy) {
@@ -1306,7 +1307,7 @@ function LiveTracking({ viewOnly = false }) {
           ) : aiHtml ? (
             <div
               className="ai-content"
-              dangerouslySetInnerHTML={{ __html: aiHtml }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(aiHtml) }}
             />
           ) : (
             <div style={{ color: 'var(--text-3)', fontSize: '0.8rem' }}>

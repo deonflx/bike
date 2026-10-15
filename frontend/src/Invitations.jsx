@@ -24,6 +24,7 @@ function Invitations({ isClerkConfigured }) {
       })
       .catch((err) => {
         console.error('Failed to load connection requests:', err);
+        showToast('Failed to load connection requests. Please check your network or sign-in state.');
         setLoading(false);
       });
   };
@@ -51,18 +52,23 @@ function Invitations({ isClerkConfigured }) {
 
   const handleSetWhatsAppLink = (tripId, currentLink = '') => {
     const newLink = window.prompt(
-      'Paste WhatsApp Group Invite Link (e.g. https://chat.whatsapp.com/...) so all convoy companions share this single group chat:',
+      'Paste WhatsApp Group Invite Link (must start with https://chat.whatsapp.com/):',
       currentLink
     );
     if (newLink === null) return;
-    api.post(`/trips/${tripId}/set_whatsapp_link/`, { whatsapp_group_link: newLink.trim() })
+    const trimmed = newLink.trim();
+    if (trimmed && !trimmed.startsWith('https://chat.whatsapp.com/')) {
+      alert('Invalid link! WhatsApp group link must begin with https://chat.whatsapp.com/');
+      return;
+    }
+    api.post(`/trips/${tripId}/set_whatsapp_link/`, { whatsapp_group_link: trimmed })
       .then(() => {
-        showToast('✅ WhatsApp group link saved! All convoy companions now share this link.');
+        showToast('✅ WhatsApp group link saved!');
         fetchConnections();
       })
       .catch((err) => {
         console.error(err);
-        showToast('Failed to update WhatsApp link.');
+        showToast(err.response?.data?.error || 'Failed to update WhatsApp link.');
       });
   };
 
@@ -250,7 +256,7 @@ function Invitations({ isClerkConfigured }) {
                       </div>
 
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                        {conn.whatsapp_group_link ? (
+                        {conn.whatsapp_group_link && conn.whatsapp_group_link.startsWith('https://chat.whatsapp.com/') ? (
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                             <a
                               href={conn.whatsapp_group_link}

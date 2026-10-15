@@ -37,16 +37,25 @@ class ClerkAuthentication(authentication.BaseAuthentication):
             unverified_header = jwt.get_unverified_header(token)
             unverified_payload = jwt.decode(token, options={"verify_signature": False})
 
-            # 2. Determine JWKS URL
-            # Priority:
-            #   a) Explicit settings.CLERK_JWKS_URL
-            #   b) Environment variable CLERK_JWKS_URL
-            #   c) Dynamic issuer from token: f"{issuer}/.well-known/jwks.json"
+            # 2. Determine JWKS URL and validate issuer
             jwks_url = getattr(settings, 'CLERK_JWKS_URL', None) or os.environ.get('CLERK_JWKS_URL')
+            configured_issuer = getattr(settings, 'CLERK_ISSUER', None) or os.environ.get('CLERK_ISSUER')
+            allowed_azp = getattr(settings, 'CLERK_ALLOWED_AZP', None) or os.environ.get('CLERK_ALLOWED_AZP')
+
+            issuer = unverified_payload.get('iss', '')
             if not jwks_url:
-                issuer = unverified_payload.get('iss')
                 if issuer:
                     issuer_clean = issuer.rstrip('/')
+                    # Only allow trusted Clerk account domains or explicitly configured issuer
+                    is_valid_clerk = (
+                        issuer_clean.startswith('https://') and (
+                            issuer_clean.endswith('.clerk.accounts.dev')
+                            or issuer_clean == 'https://api.clerk.com'
+                            or (configured_issuer and issuer_clean == configured_issuer.rstrip('/'))
+                        )
+                    )
+                    if not is_valid_clerk:
+                        raise exceptions.AuthenticationFailed("Untrusted Clerk token issuer domain.")
                     jwks_url = f"{issuer_clean}/.well-known/jwks.json"
                 else:
                     jwks_url = "https://api.clerk.com/v1/jwks"
@@ -55,15 +64,28 @@ class ClerkAuthentication(authentication.BaseAuthentication):
             jwks_client = self.get_jwks_client(jwks_url)
             signing_key = jwks_client.get_signing_key_from_jwt(token)
 
+            decode_kwargs = {
+                "algorithms": ["RS256"],
+                "options": {
+                    "verify_aud": False,  # Clerk default session tokens don't enforce aud unless custom
+                    "verify_exp": True,
+                    "require": ["exp", "iat", "sub", "iss"],
+                }
+            }
+            if configured_issuer:
+                decode_kwargs["issuer"] = configured_issuer
+
             payload = jwt.decode(
                 token,
                 signing_key.key,
-                algorithms=["RS256"],
-                options={
-                    "verify_aud": False,  # Clerk default session tokens don't enforce aud unless custom
-                    "verify_exp": True,
-                }
+                **decode_kwargs
             )
+
+            # Validate authorized party (azp) if configured
+            if allowed_azp:
+                token_azp = payload.get('azp')
+                if token_azp != allowed_azp:
+                    raise exceptions.AuthenticationFailed(f"Invalid authorized party (azp): {token_azp}")
 
         except jwt.ExpiredSignatureError:
             raise exceptions.AuthenticationFailed("Clerk token has expired")

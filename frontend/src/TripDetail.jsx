@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
+import DOMPurify from 'dompurify';
 import './App.css';
 import api from './api';
 
@@ -31,7 +32,7 @@ function TripDetail() {
   const [startingSession, setStartingSession] = useState(false);
   const [invitedRiders, setInvitedRiders] = useState({});
 
-  const fetchAiSummary = (forceRefresh = false) => {
+  const fetchAiSummary = useCallback((forceRefresh = false) => {
     setLoadingAi(true);
     setAiError(null);
     const url = forceRefresh ? `/trips/${id}/generate_summary/?refresh=true` : `/trips/${id}/generate_summary/`;
@@ -46,19 +47,36 @@ function TripDetail() {
         setAiError('Failed to load AI summary.');
         setLoadingAi(false);
       });
-  };
+  }, [id]);
 
   useEffect(() => {
+    let ignored = false;
+
+    // Reset state for previous trip
+    setTrip(null);
+    setFuelData(null);
+    setFuelLoaded(false);
+    setInvitedRiders({});
+    setCoTravelers([]);
+    setAiSummary(null);
+    setAiError(null);
+    setError(null);
+    setLoading(true);
+
     // 1. Fetch trip details
     api.get(`/trips/${id}/`)
       .then((res) => {
-        setTrip(res.data);
-        setLoading(false);
+        if (!ignored) {
+          setTrip(res.data);
+          setLoading(false);
+        }
       })
       .catch((err) => {
-        console.error(err);
-        setError('Failed to load trip details.');
-        setLoading(false);
+        if (!ignored) {
+          console.error(err);
+          setError('Failed to load trip details.');
+          setLoading(false);
+        }
       });
 
     // 2. Auto-load AI summary
@@ -67,7 +85,7 @@ function TripDetail() {
     // 3. Check if pre-calculated fuel stops exist in Redis (don't auto-load)
     api.get(`/trips/${id}/fuel_stops/`)
       .then((res) => {
-        if (res.data && res.data.needed !== undefined) {
+        if (!ignored && res.data && res.data.needed !== undefined) {
           setFuelData(res.data);
           setFuelLoaded(true);
         }
@@ -76,9 +94,17 @@ function TripDetail() {
 
     // 4. Fetch matching co-travelers
     api.get(`/trips/${id}/co_travelers/`)
-      .then((res) => setCoTravelers(res.data || []))
+      .then((res) => {
+        if (!ignored) {
+          setCoTravelers(res.data || []);
+        }
+      })
       .catch((err) => console.error('Co-travelers error:', err));
-  }, [id]);
+
+    return () => {
+      ignored = true;
+    };
+  }, [id, fetchAiSummary]);
 
   const fetchFuelStops = () => {
     setLoadingFuel(true);
@@ -137,18 +163,23 @@ function TripDetail() {
   const handleSetWhatsAppLink = () => {
     const currentLink = trip?.whatsapp_group_link || '';
     const newLink = window.prompt(
-      'Paste WhatsApp Group Invite Link (e.g. https://chat.whatsapp.com/...) so all convoy companions share this single group chat:',
+      'Paste WhatsApp Group Invite Link (must start with https://chat.whatsapp.com/):',
       currentLink
     );
     if (newLink === null) return;
-    api.post(`/trips/${id}/set_whatsapp_link/`, { whatsapp_group_link: newLink.trim() })
+    const trimmed = newLink.trim();
+    if (trimmed && !trimmed.startsWith('https://chat.whatsapp.com/')) {
+      alert('Invalid link! WhatsApp group link must begin with https://chat.whatsapp.com/');
+      return;
+    }
+    api.post(`/trips/${id}/set_whatsapp_link/`, { whatsapp_group_link: trimmed })
       .then((res) => {
         setTrip((prev) => ({ ...prev, whatsapp_group_link: res.data.whatsapp_group_link }));
-        alert('✅ WhatsApp group link saved! All convoy companions will now see this single link.');
+        alert('✅ WhatsApp group link saved!');
       })
       .catch((err) => {
         console.error(err);
-        alert('Failed to update WhatsApp link.');
+        alert(err.response?.data?.error || 'Failed to update WhatsApp link.');
       });
   };
 
@@ -266,7 +297,7 @@ function TripDetail() {
               View Route
             </Link>
 
-            {trip.whatsapp_group_link ? (
+            {trip.whatsapp_group_link && trip.whatsapp_group_link.startsWith('https://chat.whatsapp.com/') ? (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                 <a
                   href={trip.whatsapp_group_link}
@@ -347,7 +378,7 @@ function TripDetail() {
               ) : aiError ? (
                 <span style={{ color: 'var(--signal)' }}>{aiError}</span>
               ) : (
-                <div dangerouslySetInnerHTML={{ __html: aiSummary }} />
+                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(aiSummary || '') }} />
               )}
             </div>
           </div>

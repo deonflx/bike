@@ -37,7 +37,6 @@ from .services import (
     _geocode,
     _trip_capacity_mileage,
     _compute_refuel_point_and_pumps,
-    _get_or_create_route_path,
     _calculate_route_overlap,
     _haversine_km,
     _fetch_and_store_weather,
@@ -103,19 +102,19 @@ class BikeTripViewSet(viewsets.ModelViewSet):
                 destination_point=destination_point
             )
 
-            # 4. Pre-calculate refuel point, nearby petrol pumps, & route path geometry
-            if starting_point and destination_point:
-                try:
-                    fuel_stop_data = _compute_refuel_point_and_pumps(
-                        starting_point, destination_point, capacity, mileage
-                    )
-                    save_fuel_stops(trip.id, fuel_stop_data)
-                    coords = fuel_stop_data.get('coords')
-                    if coords and len(coords) >= 2:
-                        trip.route_path = LineString(coords, srid=4326)
-                        trip.save(update_fields=['route_path'])
-                except Exception as e:
-                    print(f"[API] Fuel stop computation failed for Trip #{trip.id}: {e}")
+        # 4. Pre-calculate refuel point, nearby petrol pumps, & route path geometry
+        if starting_point and destination_point:
+            try:
+                fuel_stop_data = _compute_refuel_point_and_pumps(
+                    starting_point, destination_point, capacity, mileage
+                )
+                save_fuel_stops(trip.id, fuel_stop_data)
+                coords = fuel_stop_data.get('coords')
+                if coords and len(coords) >= 2:
+                    trip.route_path = LineString(coords, srid=4326)
+                    trip.save(update_fields=['route_path'])
+            except Exception as e:
+                print(f"[API] Fuel stop computation failed for Trip #{trip.id}: {e}")
 
     def perform_update(self, serializer):
         instance = self.get_object()
@@ -175,17 +174,14 @@ class BikeTripViewSet(viewsets.ModelViewSet):
             )
 
         link = request.data.get('whatsapp_group_link', '').strip()
+        if link and not link.startswith('https://chat.whatsapp.com/'):
+            return Response(
+                {'error': 'WhatsApp link must be a valid https://chat.whatsapp.com/ invite URL.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         trip.whatsapp_group_link = link
         trip.save(update_fields=['whatsapp_group_link'])
-
-        # Sync to all linked companion trips in this accepted convoy
-        conns = ConnectionRequest.objects.filter(
-            Q(bike_trip=trip) | Q(sender=trip.user) | Q(receiver=trip.user),
-            status=ConnectionRequest.STATUS_ACCEPTED
-        )
-        linked_trip_ids = set(conns.values_list('bike_trip_id', flat=True))
-        if linked_trip_ids:
-            BikeTrip.objects.filter(id__in=linked_trip_ids).update(whatsapp_group_link=link)
 
         return Response({
             'status': 'ok',
@@ -208,9 +204,15 @@ class BikeTripViewSet(viewsets.ModelViewSet):
         try:
             weather_text = get_ai_weather(trip.pk)
             if not weather_text:
-                cached_weather = RouteWeather.objects.filter(bike_trip=trip)
-                if cached_weather.exists():
-                    weather_text = ' | '.join(w.description for w in cached_weather)
+                weather_cutoff = timezone.now() - datetime.timedelta(hours=2)
+                recent_weather = RouteWeather.objects.filter(
+                    bike_trip=trip,
+                    recorded_at__gte=weather_cutoff
+                ).order_by('-recorded_at')
+                if recent_weather.exists():
+                    latest_obs = list(recent_weather[:3])
+                    latest_obs.reverse()
+                    weather_text = ' | '.join(w.description for w in latest_obs)
                 else:
                     weather_text = _fetch_and_store_weather(trip)
                 save_ai_weather(trip.pk, weather_text)
@@ -341,7 +343,9 @@ Provide a detailed advisory covering:
                     rider.destination_point.y, rider.destination_point.x
                 ), 2)
 
-            overlap = _calculate_route_overlap(trip, rider)
+            overlap = {'shared_km': 0.0, 'overlap_pct': 0.0, 'is_same_direction': False, 'is_match': False}
+            if trip.route_path and rider.route_path:
+                overlap = _calculate_route_overlap(trip, rider)
             is_dest_match = (dist_km is not None and dist_km <= radius_km) or (
                 dest_city and dest_city.lower() in (rider.destination_name or '').lower()
             )
@@ -429,16 +433,13 @@ class TripSessionViewSet(viewsets.ModelViewSet):
 
         if session.bike_trip:
             link = request.data.get('whatsapp_group_link', '').strip()
+            if link and not link.startswith('https://chat.whatsapp.com/'):
+                return Response(
+                    {'error': 'WhatsApp link must be a valid https://chat.whatsapp.com/ invite URL.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             session.bike_trip.whatsapp_group_link = link
             session.bike_trip.save(update_fields=['whatsapp_group_link'])
-
-            conns = ConnectionRequest.objects.filter(
-                Q(bike_trip=session.bike_trip) | Q(sender=session.bike_trip.user) | Q(receiver=session.bike_trip.user),
-                status=ConnectionRequest.STATUS_ACCEPTED
-            )
-            linked_ids = set(conns.values_list('bike_trip_id', flat=True))
-            if linked_ids:
-                BikeTrip.objects.filter(id__in=linked_ids).update(whatsapp_group_link=link)
 
         serializer = self.get_serializer(session)
         return Response(serializer.data)
@@ -503,6 +504,16 @@ class ConnectionRequestViewSet(viewsets.ModelViewSet):
         conn = self.get_object()
         if conn.sender != self.request.user and conn.receiver != self.request.user and not self.request.user.is_staff:
             raise exceptions.PermissionDenied("You do not have permission to modify this connection request.")
+
+        # Reject alterations to status, receiver, or bike_trip when they differ
+        data = serializer.validated_data
+        if 'status' in data and data['status'] != conn.status:
+            raise exceptions.ValidationError({'status': 'Status can only be modified through the respond action.'})
+        if 'receiver' in data and data['receiver'] != conn.receiver:
+            raise exceptions.ValidationError({'receiver': 'Cannot modify the receiver of an existing invitation.'})
+        if 'bike_trip' in data and data['bike_trip'] != conn.bike_trip:
+            raise exceptions.ValidationError({'bike_trip': 'Cannot modify the expedition of an existing invitation.'})
+
         serializer.save()
 
     def perform_destroy(self, instance):
