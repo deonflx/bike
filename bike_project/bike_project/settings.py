@@ -13,11 +13,11 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
-
-load_dotenv(override=True)
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / '.env', override=True)
 
 # ===========================================================
 # GeoDjango / GDAL configuration for Windows (OSGeo4W)
@@ -40,7 +40,9 @@ if os.name == 'nt':
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-q*4rzi)x17^+wtk!o(dsz0p!u6v7u*feyy!1orrurar$rlr3bn')
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    raise ImproperlyConfigured("The SECRET_KEY environment variable must be set.")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 'yes')
@@ -104,11 +106,16 @@ WSGI_APPLICATION = 'bike_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DB_NAME     = os.environ.get('DB_NAME', 'postgres')
-DB_USER     = os.environ.get('DB_USER', 'postgres.ktwhbrsgumuxypxtcwwa')
-DB_PASSWORD = os.environ.get('DB_PASSWORD', 'deonnjr@200')
-DB_HOST     = os.environ.get('DB_HOST', 'aws-0-ap-northeast-2.pooler.supabase.com')
+DB_NAME     = os.environ.get('DB_NAME')
+DB_USER     = os.environ.get('DB_USER')
+DB_PASSWORD = os.environ.get('DB_PASSWORD')
+DB_HOST     = os.environ.get('DB_HOST')
 DB_PORT     = os.environ.get('DB_PORT', '5432')
+
+if not all([DB_NAME, DB_USER, DB_PASSWORD, DB_HOST]):
+    raise ImproperlyConfigured(
+        "Database configuration missing: DB_NAME, DB_USER, DB_PASSWORD, and DB_HOST must be set in the environment."
+    )
 
 DATABASES = {
     'default': {

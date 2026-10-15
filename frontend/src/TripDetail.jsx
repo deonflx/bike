@@ -32,20 +32,24 @@ function TripDetail() {
   const [startingSession, setStartingSession] = useState(false);
   const [invitedRiders, setInvitedRiders] = useState({});
 
-  const fetchAiSummary = useCallback((forceRefresh = false) => {
+  const fetchAiSummary = useCallback((forceRefresh = false, isIgnored = () => false) => {
     setLoadingAi(true);
     setAiError(null);
     const url = forceRefresh ? `/trips/${id}/generate_summary/?refresh=true` : `/trips/${id}/generate_summary/`;
 
     api.post(url)
       .then((res) => {
-        setAiSummary(res.data.html);
-        setLoadingAi(false);
+        if (!isIgnored()) {
+          setAiSummary(res.data.html);
+          setLoadingAi(false);
+        }
       })
       .catch((err) => {
-        console.error('AI summary error:', err);
-        setAiError('Failed to load AI summary.');
-        setLoadingAi(false);
+        if (!isIgnored()) {
+          console.error('AI summary error:', err);
+          setAiError('Failed to load AI summary.');
+          setLoadingAi(false);
+        }
       });
   }, [id]);
 
@@ -80,7 +84,7 @@ function TripDetail() {
       });
 
     // 2. Auto-load AI summary
-    fetchAiSummary(false);
+    fetchAiSummary(false, () => ignored);
 
     // 3. Check if pre-calculated fuel stops exist in Redis (don't auto-load)
     api.get(`/trips/${id}/fuel_stops/`)

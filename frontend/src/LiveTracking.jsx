@@ -35,8 +35,16 @@ const riderIcon = L.divIcon({
   popupAnchor: [0, -10],
 });
 
+const escapeHtml = (str) =>
+  String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
 const createPartnerIcon = (name) => {
-  const initial = (name || 'R')[0].toUpperCase();
+  const initial = escapeHtml((name || 'R')[0].toUpperCase());
   return L.divIcon({
     html: `<div class="partner-pulse-ring"><span class="pack-rider-initial">${initial}</span></div>`,
     className: '',
@@ -55,14 +63,6 @@ const refuelIcon = L.divIcon({
   iconAnchor: [7, 7],
   popupAnchor: [0, -10],
 });
-
-const escapeHtml = (str) =>
-  String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 
 const createStationIcon = (name, dist) =>
   L.divIcon({
