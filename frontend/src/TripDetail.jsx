@@ -26,6 +26,8 @@ function TripDetail() {
 
   // Co-Travelers state
   const [coTravelers, setCoTravelers] = useState([]);
+  const [loadingCoTravelers, setLoadingCoTravelers] = useState(true);
+  const [coTravelersError, setCoTravelersError] = useState(null);
   const [activeTab, setActiveTab] = useState('all');
 
   // Session state
@@ -62,6 +64,8 @@ function TripDetail() {
     setFuelLoaded(false);
     setInvitedRiders({});
     setCoTravelers([]);
+    setLoadingCoTravelers(true);
+    setCoTravelersError(null);
     setAiSummary(null);
     setAiError(null);
     setError(null);
@@ -97,13 +101,22 @@ function TripDetail() {
       .catch((err) => console.log('Fuel stops check:', err));
 
     // 4. Fetch matching co-travelers
+    setLoadingCoTravelers(true);
+    setCoTravelersError(null);
     api.get(`/trips/${id}/co_travelers/`)
       .then((res) => {
         if (!ignored) {
           setCoTravelers(res.data || []);
+          setLoadingCoTravelers(false);
         }
       })
-      .catch((err) => console.error('Co-travelers error:', err));
+      .catch((err) => {
+        if (!ignored) {
+          console.error('Co-travelers error:', err);
+          setCoTravelersError('Failed to discover co-travelers along this corridor.');
+          setLoadingCoTravelers(false);
+        }
+      });
 
     return () => {
       ignored = true;
@@ -408,14 +421,14 @@ function TripDetail() {
                 style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
                 onClick={() => setActiveTab('all')}
               >
-                All Matches ({coTravelers.length})
+                All Matches {loadingCoTravelers ? '' : `(${coTravelers.length})`}
               </button>
               <button
                 className={`tab-btn ${activeTab === 'route' ? 'active' : ''}`}
                 style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
                 onClick={() => setActiveTab('route')}
               >
-                🛣️ Shared Routes ({coTravelers.filter(r => r.shared_route_km > 0).length})
+                🛣️ Shared Routes {loadingCoTravelers ? '' : `(${coTravelers.filter(r => r.shared_route_km > 0).length})`}
               </button>
               <button
                 className={`tab-btn ${activeTab === 'dest' ? 'active' : ''}`}
@@ -428,7 +441,15 @@ function TripDetail() {
 
             {/* CONVOY CARDS LIST */}
             <div className="radar-cards-list">
-              {filteredTravelers.length > 0 ? (
+              {loadingCoTravelers ? (
+                <div className="radar-empty" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  <div className="ai-spinner"></div> Scanning corridor for co-travelers…
+                </div>
+              ) : coTravelersError ? (
+                <div className="radar-empty" style={{ color: 'var(--signal)' }}>
+                  {coTravelersError}
+                </div>
+              ) : filteredTravelers.length > 0 ? (
                 filteredTravelers.map((rider) => (
                   <div key={rider.id} className="convoy-card">
                     <div className="convoy-top">
