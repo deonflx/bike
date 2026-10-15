@@ -24,6 +24,9 @@ class BikeTrip(models.Model):
     # Route path geometry for route-based matching & corridor queries
     route_path           = gis_models.LineStringField(srid=4326, null=True, blank=True)
 
+    # Optional WhatsApp group chat invite link for the convoy
+    whatsapp_group_link  = models.URLField(max_length=300, blank=True, null=True, help_text="WhatsApp group chat invite link for the convoy")
+
     created_at           = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

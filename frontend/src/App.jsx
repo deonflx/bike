@@ -1,12 +1,54 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate } from 'react-router-dom';
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+  useAuth,
+} from '@clerk/clerk-react';
 import './App.css';
-import api from './api';
+import api, { setAuthTokenGetter } from './api';
 import TripDetail from './TripDetail';
 import LiveTracking from './LiveTracking';
+import Invitations from './Invitations';
+
+function ClerkAuthBridge() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    setAuthTokenGetter(getToken);
+  }, [getToken]);
+  return null;
+}
+
+function AuthenticatedHeader({ onNewExpedition }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <SignedOut>
+        <SignInButton mode="modal">
+          <button className="btn btn-sm btn-ghost" style={{ cursor: 'pointer' }}>
+            Sign In
+          </button>
+        </SignInButton>
+        <SignUpButton mode="modal">
+          <button className="btn btn-sm btn-primary" style={{ cursor: 'pointer' }}>
+            Sign Up
+          </button>
+        </SignUpButton>
+      </SignedOut>
+      <SignedIn>
+        <button className="btn btn-sm btn-primary" onClick={onNewExpedition}>
+          + New Expedition
+        </button>
+        <UserButton />
+      </SignedIn>
+    </div>
+  );
+}
 
 // ─── 1. Home / Expedition Logbook View (matching customer_list.html) ──────────
-function TripList() {
+function TripList({ isClerkConfigured }) {
   const navigate = useNavigate();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +60,7 @@ function TripList() {
   const [bikename, setBikename] = useState('');
   const [startingName, setStartingName] = useState('');
   const [destinationName, setDestinationName] = useState('');
+  const [whatsappLink, setWhatsappLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -44,12 +87,14 @@ function TripList() {
       bikename: bikename,
       starting_name: startingName,
       destination_name: destinationName,
+      whatsapp_group_link: whatsappLink,
     })
       .then((res) => {
         setTrips([res.data, ...trips]);
         setBikename('');
         setStartingName('');
         setDestinationName('');
+        setWhatsappLink('');
         setSubmitting(false);
         setIsPanelOpen(false);
       })
@@ -94,16 +139,23 @@ function TripList() {
         <div className="topbar-divider"></div>
         <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
           <span className="nav-item active">Logbook</span>
-          <span className="nav-item" style={{ color: 'var(--text-3)', cursor: 'default' }}>Radar</span>
-          <span className="nav-item" style={{ color: 'var(--text-3)', cursor: 'default' }}>Invitations</span>
+          <Link to="/invitations" className="nav-item" style={{ textDecoration: 'none' }}>
+            🤝 Invitations
+          </Link>
         </div>
         <div className="topbar-right">
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={() => setIsPanelOpen(true)}
-          >
-            + New Expedition
-          </button>
+          {isClerkConfigured ? (
+            <AuthenticatedHeader onNewExpedition={() => setIsPanelOpen(true)} />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => setIsPanelOpen(true)}
+              >
+                + New Expedition
+              </button>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -334,6 +386,20 @@ function TripList() {
                 <div className="field-hint">Locations will be geocoded into PostGIS spatial Points automatically.</div>
               </div>
             </div>
+
+            <div className="field-section">
+              <div className="field-section-label">// CONVOY COMMUNICATION (OPTIONAL)</div>
+              <div className="field">
+                <label>WhatsApp Group Invite Link</label>
+                <input
+                  type="url"
+                  placeholder="e.g. https://chat.whatsapp.com/L123abcXYZ"
+                  value={whatsappLink}
+                  onChange={(e) => setWhatsappLink(e.target.value)}
+                />
+                <div className="field-hint">Companions who join your convoy can tap this link to join your group chat & voice intercom.</div>
+              </div>
+            </div>
           </div>
 
           <div className="panel-footer">
@@ -351,14 +417,18 @@ function TripList() {
 }
 
 // ─── 2. Main App Router ──────────────────────────────────────────────────────
-function App() {
+function App({ isClerkConfigured }) {
   return (
-    <Routes>
-      <Route path="/" element={<TripList />} />
-      <Route path="/trips/:id" element={<TripDetail />} />
-      <Route path="/trips/:id/route" element={<LiveTracking viewOnly={true} />} />
-      <Route path="/tracking/:sessionId" element={<LiveTracking viewOnly={false} />} />
-    </Routes>
+    <>
+      {isClerkConfigured && <ClerkAuthBridge />}
+      <Routes>
+        <Route path="/" element={<TripList isClerkConfigured={isClerkConfigured} />} />
+        <Route path="/invitations" element={<Invitations isClerkConfigured={isClerkConfigured} />} />
+        <Route path="/trips/:id" element={<TripDetail />} />
+        <Route path="/trips/:id/route" element={<LiveTracking viewOnly={true} />} />
+        <Route path="/tracking/:sessionId" element={<LiveTracking viewOnly={false} />} />
+      </Routes>
+    </>
   );
 }
 

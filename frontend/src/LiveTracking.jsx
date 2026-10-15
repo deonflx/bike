@@ -34,6 +34,19 @@ const riderIcon = L.divIcon({
   popupAnchor: [0, -10],
 });
 
+const createPartnerIcon = (name) => {
+  const initial = (name || 'R')[0].toUpperCase();
+  return L.divIcon({
+    html: `<div class="partner-pulse-ring"><span class="pack-rider-initial">${initial}</span></div>`,
+    className: '',
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    popupAnchor: [0, -14],
+  });
+};
+
+const partnerIcon = createPartnerIcon('R');
+
 const refuelIcon = L.divIcon({
   html: '<div class="fuel-point"></div>',
   className: '',
@@ -89,7 +102,7 @@ async function geocode(q) {
 }
 
 // ── Map Controller (Fit Bounds & Pan) ─────────────────────────────────────────
-function MapController({ startCoords, endCoords, panTarget }) {
+function MapController({ startCoords, endCoords, panTarget, boundsTarget }) {
   const map = useMap();
   const fittedRef = useRef(false);
 
@@ -98,6 +111,12 @@ function MapController({ startCoords, endCoords, panTarget }) {
       map.panTo(panTarget, { animate: true });
     }
   }, [panTarget, map]);
+
+  useEffect(() => {
+    if (boundsTarget) {
+      map.fitBounds(boundsTarget, { padding: [80, 80], animate: true });
+    }
+  }, [boundsTarget, map]);
 
   useEffect(() => {
     if (!fittedRef.current && startCoords && endCoords) {
@@ -148,6 +167,8 @@ function LiveTracking({ viewOnly = false }) {
   const [fuelLoaded, setFuelLoaded] = useState(false);
 
   const [panTarget, setPanTarget] = useState(null);
+  const [boundsTarget, setBoundsTarget] = useState(null);
+  const [convoy, setConvoy] = useState(null);
   const [tracking, setTracking] = useState(false);
   const [startingSession, setStartingSession] = useState(false);
 
@@ -189,6 +210,9 @@ function LiveTracking({ viewOnly = false }) {
           if (res.data.current_lat && res.data.current_lng) {
             setCurrentCoords([res.data.current_lat, res.data.current_lng]);
           }
+          if (res.data.convoy) {
+            setConvoy(res.data.convoy);
+          }
           resolveSessionCoords(res.data);
           setLoading(false);
         })
@@ -227,6 +251,9 @@ function LiveTracking({ viewOnly = false }) {
 
   // Resolve coords for Live Session
   const resolveSessionCoords = async (sessionData) => {
+    if (sessionData.convoy) {
+      setConvoy(sessionData.convoy);
+    }
     let sCoords = null;
     let eCoords = null;
 
@@ -451,6 +478,9 @@ function LiveTracking({ viewOnly = false }) {
             api.patch(`/sessions/${sessionId}/`, { lat, lng })
               .then((res) => {
                 setSession((prev) => ({ ...prev, ...res.data }));
+                if (res.data.convoy) {
+                  setConvoy(res.data.convoy);
+                }
               })
               .catch((err) => console.error('GPS telemetry sync error:', err));
           }
@@ -463,6 +493,25 @@ function LiveTracking({ viewOnly = false }) {
       );
     }
   };
+
+  // 6b. Active Convoy Telemetry Poller (Syncs partner GPS & distance gap every 4s)
+  useEffect(() => {
+    if (viewOnly || !sessionId) return;
+
+    const intervalId = setInterval(() => {
+      api.get(`/sessions/${sessionId}/`)
+        .then((res) => {
+          if (res.data.convoy) {
+            setConvoy(res.data.convoy);
+          }
+        })
+        .catch((err) => {
+          // Silent polling retry
+        });
+    }, 4000);
+
+    return () => clearInterval(intervalId);
+  }, [viewOnly, sessionId]);
 
   // Cleanup GPS watcher on unmount
   useEffect(() => {
@@ -501,6 +550,33 @@ function LiveTracking({ viewOnly = false }) {
       .catch((err) => {
         console.error(err);
         alert('Failed to end session.');
+      });
+  };
+
+  // 9. Convoy WhatsApp Link Sync (allows any member to set/update group link on the fly)
+  const handleSetWhatsAppLink = () => {
+    const currentLink = convoy?.whatsapp_group_link || '';
+    const newLink = window.prompt(
+      'Paste WhatsApp Group Invite Link (e.g. https://chat.whatsapp.com/...) so all convoy riders share this chat:',
+      currentLink
+    );
+    if (newLink === null) return;
+    const endpoint = sessionId
+      ? `/sessions/${sessionId}/set_whatsapp_link/`
+      : `/trips/${tripId || id}/set_whatsapp_link/`;
+
+    api.post(endpoint, { whatsapp_group_link: newLink.trim() })
+      .then((res) => {
+        showToast('✅ WhatsApp link saved! All convoy riders share this group chat.');
+        if (res.data.convoy) {
+          setConvoy(res.data.convoy);
+        } else {
+          setConvoy((prev) => ({ ...prev, whatsapp_group_link: newLink.trim() }));
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        showToast('Failed to update WhatsApp link.');
       });
   };
 
@@ -619,6 +695,270 @@ function LiveTracking({ viewOnly = false }) {
 
       {/* ── MAP CANVAS (Full screen dark CARTO basemap) ── */}
       <div className="map-container-wrap">
+        {/* ── CONVOY TELEMETRY HUD OVERLAY (Supports N-Rider Multi-User Packs) ── */}
+        {!viewOnly && convoy?.has_partner && (
+          <div className="convoy-hud" style={convoy.is_group ? { minWidth: '320px', maxWidth: '380px' } : {}}>
+            <div className="convoy-hud-header">
+              <div className="convoy-hud-title">
+                <div className={convoy.is_live ? 'convoy-beacon' : 'idle-dot'}></div>
+                <span>{convoy.is_group ? `Pack Radar (${convoy.active_live_count}/${convoy.members.length} Live)` : 'Convoy Radar'}</span>
+              </div>
+              {convoy.is_group ? (
+                convoy.min_gap_km !== null ? (
+                  <span className="convoy-gap-badge convoy-gap-close">
+                    {convoy.min_gap_km} km nearest
+                  </span>
+                ) : (
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-3)', fontFamily: "'JetBrains Mono', monospace" }}>
+                    STANDBY
+                  </span>
+                )
+              ) : (
+                convoy.is_live && convoy.gap_km !== null ? (
+                  <span
+                    className={`convoy-gap-badge ${
+                      convoy.gap_km <= 1.0
+                        ? 'convoy-gap-close'
+                        : convoy.gap_km <= 5.0
+                        ? 'convoy-gap-mid'
+                        : 'convoy-gap-far'
+                    }`}
+                  >
+                    {convoy.gap_km} km gap
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      fontSize: '0.65rem',
+                      color: convoy.is_live ? 'var(--jade)' : 'var(--text-3)',
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  >
+                    {convoy.is_live ? 'LIVE' : 'STANDBY'}
+                  </span>
+                )
+              )}
+            </div>
+
+            {/* Convoy WhatsApp Intercom Controls (Shared across all members) */}
+            {convoy.whatsapp_group_link ? (
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '10px' }}>
+                <a
+                  href={convoy.whatsapp_group_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-sm"
+                  style={{
+                    background: '#25D366',
+                    color: '#0b0c0e',
+                    fontWeight: 700,
+                    fontSize: '0.72rem',
+                    padding: '5px 10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    textDecoration: 'none',
+                    borderRadius: '6px',
+                    flex: 1,
+                  }}
+                  title="Open WhatsApp Convoy Intercom / Group Voice Call"
+                >
+                  <span>💬</span> Convoy WhatsApp Intercom →
+                </a>
+                <button
+                  onClick={handleSetWhatsAppLink}
+                  className="btn btn-sm btn-ghost"
+                  style={{ fontSize: '0.7rem', padding: '4px 8px', color: 'var(--text-2)' }}
+                  title="Update WhatsApp Group Link for all members"
+                >
+                  ✏️
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleSetWhatsAppLink}
+                className="btn btn-sm btn-ghost"
+                style={{
+                  color: '#25D366',
+                  borderColor: 'rgba(37,211,102,0.4)',
+                  fontSize: '0.72rem',
+                  padding: '4px 8px',
+                  width: '100%',
+                  marginBottom: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                }}
+                title="Add a WhatsApp group link so all convoy members share the same chat"
+              >
+                <span>💬</span> + Add WhatsApp Convoy Chat
+              </button>
+            )}
+
+            {/* If MULTI-USER GROUP: Render scrollable pack roster */}
+            {convoy.is_group && convoy.members?.length > 0 ? (
+              <div>
+                <div className="convoy-pack-list">
+                  {convoy.members.map((member, idx) => (
+                    <div key={`pack-item-${member.user_id || idx}`} className="convoy-pack-item">
+                      <div className="convoy-pack-rider-info">
+                        <div className={`convoy-rider-avatar ${member.is_live ? 'live' : ''}`}>
+                          {(member.username || 'R')[0].toUpperCase()}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text)' }}>
+                            @{member.username}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--text-3)' }}>
+                            {member.bikename || 'Motorcycle'}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {member.is_live && member.gap_km !== null ? (
+                          <span
+                            className={`convoy-gap-badge ${
+                              member.gap_km <= 1.0
+                                ? 'convoy-gap-close'
+                                : member.gap_km <= 5.0
+                                ? 'convoy-gap-mid'
+                                : 'convoy-gap-far'
+                            }`}
+                            style={{ fontSize: '0.7rem', padding: '1px 6px' }}
+                          >
+                            {member.gap_km} km
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-3)', fontFamily: 'JetBrains Mono' }}>
+                            STANDBY
+                          </span>
+                        )}
+                        {member.is_live && member.coords && (
+                          <button
+                            onClick={() => setPanTarget([member.coords.lat, member.coords.lng])}
+                            className="btn btn-sm btn-ghost"
+                            style={{ fontSize: '0.68rem', padding: '2px 6px', color: 'var(--jade)', borderColor: 'rgba(34,197,94,0.3)' }}
+                            title={`Center on @${member.username}`}
+                          >
+                            🎯
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+                  {currentCoords && (
+                    <button
+                      onClick={() => setPanTarget(currentCoords)}
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '0.68rem', padding: '3px 8px', flex: 1, color: 'var(--accent)' }}
+                      title="Center on your motorcycle"
+                    >
+                      📍 Focus Me
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      const livePoints = (convoy.members || [])
+                        .filter((m) => m.is_live && m.coords?.lat && m.coords?.lng)
+                        .map((m) => [m.coords.lat, m.coords.lng]);
+                      if (currentCoords) livePoints.push(currentCoords);
+                      if (livePoints.length >= 2) {
+                        setBoundsTarget(livePoints);
+                      } else if (livePoints.length === 1) {
+                        setPanTarget(livePoints[0]);
+                      }
+                    }}
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '0.68rem', padding: '3px 8px', flex: 1.2, color: 'var(--jade)', borderColor: 'rgba(34,197,94,0.3)' }}
+                    title="Fit view to show all group riders"
+                  >
+                    ↔ Span Entire Pack
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* If DUAL-RIDER (2 users): Render standard card */
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text)' }}>
+                      @{convoy.partner_username}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>
+                      {convoy.partner_bikename || 'Companion Motorcycle'}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span
+                      style={{
+                        fontSize: '0.68rem',
+                        color: convoy.is_live ? 'var(--jade)' : 'var(--text-3)',
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}
+                    >
+                      {convoy.is_live ? '● BEACON ACTIVE' : '○ WAITING GPS'}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                  {convoy.is_live && convoy.partner_coords && (
+                    <button
+                      onClick={() => setPanTarget([convoy.partner_coords.lat, convoy.partner_coords.lng])}
+                      className="btn btn-sm btn-ghost"
+                      style={{
+                        fontSize: '0.68rem',
+                        padding: '3px 6px',
+                        flex: 1,
+                        color: 'var(--jade)',
+                        borderColor: 'rgba(34,197,94,0.3)',
+                      }}
+                      title="Center map on companion rider"
+                    >
+                      🎯 Companion
+                    </button>
+                  )}
+                  {currentCoords && (
+                    <button
+                      onClick={() => setPanTarget(currentCoords)}
+                      className="btn btn-sm btn-ghost"
+                      style={{
+                        fontSize: '0.68rem',
+                        padding: '3px 6px',
+                        flex: 1,
+                        color: 'var(--accent)',
+                      }}
+                      title="Center map on your location"
+                    >
+                      📍 Me
+                    </button>
+                  )}
+                  {currentCoords && convoy?.is_live && convoy?.partner_coords && (
+                    <button
+                      onClick={() => {
+                        setBoundsTarget([
+                          currentCoords,
+                          [convoy.partner_coords.lat, convoy.partner_coords.lng],
+                        ]);
+                      }}
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '0.68rem', padding: '3px 6px', flex: 1 }}
+                      title="Fit view to show both riders"
+                    >
+                      ↔ Both
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <MapContainer
           center={defaultCenter}
           zoom={10}
@@ -635,6 +975,7 @@ function LiveTracking({ viewOnly = false }) {
             startCoords={startCoords}
             endCoords={endCoords}
             panTarget={panTarget}
+            boundsTarget={boundsTarget}
           />
 
           {/* OSRM Route Polyline */}
@@ -649,6 +990,37 @@ function LiveTracking({ viewOnly = false }) {
                 lineJoin: 'round',
               }}
             />
+          )}
+
+          {/* Multi-Rider Convoy Tether Lines (renders lines to all live pack members) */}
+          {currentCoords && convoy?.members?.length > 0 ? (
+            convoy.members.map((member, idx) => {
+              if (!member.is_live || !member.coords?.lat || !member.coords?.lng) return null;
+              return (
+                <Polyline
+                  key={`tether-${member.user_id || idx}`}
+                  positions={[currentCoords, [member.coords.lat, member.coords.lng]]}
+                  pathOptions={{
+                    color: '#22c55e',
+                    weight: 2,
+                    dashArray: '6, 8',
+                    opacity: 0.7,
+                  }}
+                />
+              );
+            })
+          ) : (
+            currentCoords && convoy?.is_live && convoy?.partner_coords?.lat && convoy?.partner_coords?.lng && (
+              <Polyline
+                positions={[currentCoords, [convoy.partner_coords.lat, convoy.partner_coords.lng]]}
+                pathOptions={{
+                  color: '#22c55e',
+                  weight: 2,
+                  dashArray: '6, 8',
+                  opacity: 0.75,
+                }}
+              />
+            )
           )}
 
           {/* Start Point Marker */}
@@ -679,6 +1051,69 @@ function LiveTracking({ viewOnly = false }) {
                 Live Telemetry Position
               </Popup>
             </Marker>
+          )}
+
+          {/* Live Companion Convoy Markers (Supports N-Rider Multi-User Packs) */}
+          {convoy?.members?.length > 0 ? (
+            convoy.members.map((member, idx) => {
+              if (!member.is_live || !member.coords?.lat || !member.coords?.lng) return null;
+              return (
+                <Marker
+                  key={`marker-pack-${member.user_id || idx}`}
+                  position={[member.coords.lat, member.coords.lng]}
+                  icon={createPartnerIcon(member.username)}
+                >
+                  <Popup>
+                    <div style={{ textAlign: 'center', minWidth: '130px' }}>
+                      <strong style={{ color: 'var(--jade)', fontSize: '0.95rem' }}>
+                        🏍️ @{member.username}
+                      </strong>
+                      <br />
+                      <span style={{ color: 'var(--text-2)', fontSize: '12px' }}>
+                        {member.bikename || 'Motorcycle'}
+                      </span>
+                      <br />
+                      {member.gap_km !== null && (
+                        <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--amber)' }}>
+                          Distance Gap: <strong>{member.gap_km} km</strong>
+                        </div>
+                      )}
+                      <div style={{ marginTop: '4px', fontSize: '10px', color: 'var(--text-3)' }}>
+                        🟢 Transmitting Live Beacon
+                      </div>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            })
+          ) : (
+            convoy?.is_live && convoy?.partner_coords?.lat && convoy?.partner_coords?.lng && (
+              <Marker
+                position={[convoy.partner_coords.lat, convoy.partner_coords.lng]}
+                icon={createPartnerIcon(convoy.partner_username)}
+              >
+                <Popup>
+                  <div style={{ textAlign: 'center' }}>
+                    <strong style={{ color: 'var(--jade)', fontSize: '0.95rem' }}>
+                      🏍️ @{convoy.partner_username}
+                    </strong>
+                    <br />
+                    <span style={{ color: 'var(--text-2)', fontSize: '12px' }}>
+                      {convoy.partner_bikename || 'Companion Motorcycle'}
+                    </span>
+                    <br />
+                    {convoy.gap_km !== null && (
+                      <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--amber)' }}>
+                        Distance Gap: <strong>{convoy.gap_km} km</strong>
+                      </div>
+                    )}
+                    <div style={{ marginTop: '4px', fontSize: '10px', color: 'var(--text-3)' }}>
+                      🟢 Transmitting Live Beacon
+                    </div>
+                  </div>
+                </Popup>
+              </Marker>
+            )
           )}
 
           {/* 🌤️ WEATHER MARKERS DISPLAYED DIRECTLY ON MAP 🌤️ */}
@@ -786,12 +1221,38 @@ function LiveTracking({ viewOnly = false }) {
               </div>
               <div className="inst-stat-lbl">km remaining</div>
             </div>
-            <div className="inst-stat">
-              <div className="inst-stat-val accent" id="accuracy">
-                {accuracy !== null ? accuracy : '—'}
+            {convoy?.has_partner && convoy.is_live ? (
+              convoy.is_group ? (
+                <>
+                  <div className="inst-stat">
+                    <div className="inst-stat-val jade">
+                      {convoy.min_gap_km !== null ? convoy.min_gap_km : '—'}
+                    </div>
+                    <div className="inst-stat-lbl">nearest (km)</div>
+                  </div>
+                  <div className="inst-stat">
+                    <div className="inst-stat-val accent">
+                      {convoy.active_live_count}/{convoy.members?.length || 0}
+                    </div>
+                    <div className="inst-stat-lbl">pack live</div>
+                  </div>
+                </>
+              ) : (
+                <div className="inst-stat">
+                  <div className="inst-stat-val jade">
+                    {convoy.gap_km !== null ? convoy.gap_km : '—'}
+                  </div>
+                  <div className="inst-stat-lbl">partner gap (km)</div>
+                </div>
+              )
+            ) : (
+              <div className="inst-stat">
+                <div className="inst-stat-val accent" id="accuracy">
+                  {accuracy !== null ? accuracy : '—'}
+                </div>
+                <div className="inst-stat-lbl">GPS accuracy (m)</div>
               </div>
-              <div className="inst-stat-lbl">GPS accuracy (m)</div>
-            </div>
+            )}
           </div>
         )}
       </div>

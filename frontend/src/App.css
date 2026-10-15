@@ -428,3 +428,184 @@
   font-family: 'Space Grotesk', sans-serif;
 }
 
+/* ── DUAL-RIDER CONVOY PULSE & HUD ── */
+.partner-pulse-ring {
+  width: 22px;
+  height: 22px;
+  background: var(--jade);
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 16px var(--jade), 0 0 30px rgba(34, 197, 94, 0.6);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.partner-pulse-ring::after {
+  content: '';
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  border: 2px solid var(--jade);
+  border-radius: 50%;
+  animation: partner-pulse 1.8s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+@keyframes partner-pulse {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.convoy-hud {
+  position: absolute;
+  top: 72px;
+  left: 20px;
+  z-index: 999;
+  background: rgba(17, 18, 20, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 12px;
+  padding: 14px 18px;
+  color: var(--text);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+  min-width: 280px;
+  max-width: 340px;
+  pointer-events: auto;
+}
+
+.convoy-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.convoy-hud-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jade);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.convoy-beacon {
+  width: 8px;
+  height: 8px;
+  background: var(--jade);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--jade);
+  animation: beacon-blink 1.2s infinite ease-in-out;
+}
+@keyframes beacon-blink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.idle-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--text-3);
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.convoy-gap-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.convoy-gap-close {
+  background: rgba(34, 197, 94, 0.18);
+  color: var(--jade);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.convoy-gap-mid {
+  background: rgba(245, 158, 11, 0.18);
+  color: var(--amber);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.convoy-gap-far {
+  background: rgba(244, 63, 94, 0.18);
+  color: var(--signal);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+}
+
+.pack-rider-initial {
+  font-size: 10px;
+  font-weight: 800;
+  color: #0b0c0e;
+  line-height: 1;
+  font-family: 'JetBrains Mono', monospace;
+  z-index: 2;
+  user-select: none;
+}
+
+.convoy-pack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+  margin: 8px 0;
+  padding-right: 4px;
+}
+.convoy-pack-list::-webkit-scrollbar {
+  width: 4px;
+}
+.convoy-pack-list::-webkit-scrollbar-thumb {
+  background: var(--border-hi);
+  border-radius: 4px;
+}
+
+.convoy-pack-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+.convoy-pack-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.convoy-pack-rider-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.convoy-rider-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--asphalt-4);
+  border: 1px solid var(--border-hi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+}
+.convoy-rider-avatar.live {
+  border-color: var(--jade);
+  color: var(--jade);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+}
+
+
+

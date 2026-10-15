@@ -27,6 +27,7 @@ function TripDetail() {
 
   // Session state
   const [startingSession, setStartingSession] = useState(false);
+  const [invitedRiders, setInvitedRiders] = useState({});
 
   const fetchAiSummary = (forceRefresh = false) => {
     setLoadingAi(true);
@@ -116,13 +117,37 @@ function TripDetail() {
       });
   };
 
-  const handleConnect = (riderId) => {
+  const handleSetWhatsAppLink = () => {
+    const currentLink = trip?.whatsapp_group_link || '';
+    const newLink = window.prompt(
+      'Paste WhatsApp Group Invite Link (e.g. https://chat.whatsapp.com/...) so all convoy companions share this single group chat:',
+      currentLink
+    );
+    if (newLink === null) return;
+    api.post(`/trips/${id}/set_whatsapp_link/`, { whatsapp_group_link: newLink.trim() })
+      .then((res) => {
+        setTrip((prev) => ({ ...prev, whatsapp_group_link: res.data.whatsapp_group_link }));
+        alert('✅ WhatsApp group link saved! All convoy companions will now see this single link.');
+      })
+      .catch((err) => {
+        console.error(err);
+        alert('Failed to update WhatsApp link.');
+      });
+  };
+
+  const handleConnect = (rider) => {
     api.post('/connections/', {
-      receiver: riderId,
+      receiver: rider.user_id,
       bike_trip: parseInt(id),
     })
-      .then(() => alert('Ride invitation dispatched!'))
-      .catch((err) => alert('Connection request already sent or error occurred.'));
+      .then(() => {
+        setInvitedRiders((prev) => ({ ...prev, [rider.id]: 'pending' }));
+        alert(`⚡ Ride invitation dispatched to @${rider.username || 'rider'}!`);
+      })
+      .catch((err) => {
+        const errorMsg = err.response?.data?.error || 'Connection request already sent or error occurred.';
+        alert(errorMsg);
+      });
   };
 
   if (loading) return (
@@ -204,7 +229,7 @@ function TripDetail() {
           </div>
 
           {/* ACTION BUTTONS (Exact HTML classes: btn-jade, btn-ghost) */}
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               onClick={handleStartTrip}
               disabled={startingSession}
@@ -219,6 +244,62 @@ function TripDetail() {
             >
               View Route
             </Link>
+
+            {trip.whatsapp_group_link ? (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <a
+                  href={trip.whatsapp_group_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-sm"
+                  style={{
+                    background: '#25D366',
+                    color: '#0b0c0e',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    textDecoration: 'none',
+                  }}
+                  title="Open WhatsApp Group Chat & Voice Intercom"
+                >
+                  <span>💬</span> Convoy WhatsApp
+                </a>
+                <button
+                  onClick={handleSetWhatsAppLink}
+                  className="btn btn-sm btn-ghost"
+                  style={{ fontSize: '0.72rem', padding: '3px 6px', color: 'var(--text-2)' }}
+                  title="Update WhatsApp Group Link for all members"
+                >
+                  ✏️
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleSetWhatsAppLink}
+                className="btn btn-sm btn-ghost"
+                style={{ color: '#25D366', borderColor: 'rgba(37, 211, 102, 0.4)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                title="Add a WhatsApp group link so all convoy members share the same chat"
+              >
+                <span>💬</span> + WhatsApp Group
+              </button>
+            )}
+
+            <button
+              onClick={() => {
+                const text = encodeURIComponent(
+                  `🏍️ Mototrack Expedition: ${trip.bikename}\n` +
+                  `📍 Route: ${trip.starting_name} ➔ ${trip.destination_name}\n` +
+                  `⚡ Join Convoy & Live Telemetry: ${window.location.origin}/trips/${trip.id}`
+                );
+                window.open(`https://wa.me/?text=${text}`, '_blank');
+              }}
+              className="btn btn-sm btn-ghost"
+              style={{ color: '#25D366', borderColor: 'rgba(37, 211, 102, 0.4)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              title="Share expedition to WhatsApp friends or groups"
+            >
+              <span>📲</span> Share WhatsApp
+            </button>
           </div>
 
           {/* AI CO-PILOT BLOCK (Exact HTML structure: .block.ai-block) */}
@@ -322,11 +403,14 @@ function TripDetail() {
                         View Trip
                       </Link>
                       <button
-                        onClick={() => handleConnect(rider.id)}
-                        className="btn btn-sm btn-accent"
-                        style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                        disabled={Boolean(rider.conn_status || invitedRiders[rider.id])}
+                        onClick={() => handleConnect(rider)}
+                        className={`btn btn-sm ${rider.conn_status === 'accepted' ? 'btn-jade' : 'btn-accent'}`}
+                        style={{ fontSize: '0.72rem', padding: '4px 10px', cursor: (rider.conn_status || invitedRiders[rider.id]) ? 'default' : 'pointer' }}
                       >
-                        ⚡ Invite to Ride
+                        {rider.conn_status === 'accepted' ? '✓ Group Active' :
+                         (rider.conn_status === 'pending' || invitedRiders[rider.id]) ? '⏳ Invite Sent' :
+                         '⚡ Invite to Ride'}
                       </button>
                     </div>
                   </div>

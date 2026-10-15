@@ -26,7 +26,7 @@ from .redis_client import (
     delete_trip_cache,
 )
 from .ai_helper import generate_content, get_bike_specs_from_ai
-from .views import (
+from .services import (
     _geocode,
     _trip_capacity_mileage,
     _compute_refuel_point_and_pumps,
@@ -124,6 +124,28 @@ class BikeTripViewSet(viewsets.ModelViewSet):
             )
         serializer = TripSessionSerializer(session)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def set_whatsapp_link(self, request, pk=None):
+        """Set or update the WhatsApp group link for this convoy/trip"""
+        trip = self.get_object()
+        link = request.data.get('whatsapp_group_link', '').strip()
+        trip.whatsapp_group_link = link
+        trip.save(update_fields=['whatsapp_group_link'])
+
+        # Sync to all linked companion trips in this accepted convoy
+        conns = ConnectionRequest.objects.filter(
+            Q(bike_trip=trip) | Q(sender=trip.user) | Q(receiver=trip.user),
+            status=ConnectionRequest.STATUS_ACCEPTED
+        )
+        linked_trip_ids = set(conns.values_list('bike_trip_id', flat=True))
+        if linked_trip_ids:
+            BikeTrip.objects.filter(id__in=linked_trip_ids).update(whatsapp_group_link=link)
+
+        return Response({
+            'status': 'ok',
+            'whatsapp_group_link': trip.whatsapp_group_link
+        })
 
     @action(detail=True, methods=['post'])
     def generate_summary(self, request, pk=None):
@@ -254,6 +276,15 @@ Provide a detailed advisory covering:
             )
         }
 
+        user_conn_status = {}
+        if request.user.is_authenticated:
+            existing_reqs = ConnectionRequest.objects.filter(
+                Q(sender=request.user) | Q(receiver=request.user)
+            )
+            for cr in existing_reqs:
+                other_id = cr.receiver_id if cr.sender_id == request.user.id else cr.sender_id
+                user_conn_status[other_id] = cr.status
+
         results = []
         for rider in raw_candidates:
             dist_km = None
@@ -274,9 +305,13 @@ Provide a detailed advisory covering:
                 continue
 
             active_session = active_co_sessions.get(rider.pk)
+            rider_user_id = rider.user.id if rider.user else None
             results.append({
                 'id': rider.pk,
                 'bikename': rider.bikename,
+                'user_id': rider_user_id,
+                'username': rider.user.username if rider.user else 'anonymous',
+                'conn_status': user_conn_status.get(rider_user_id) if rider_user_id else None,
                 'starting_name': rider.starting_name,
                 'destination_name': rider.destination_name,
                 'dist_km': dist_km,
@@ -309,6 +344,25 @@ class TripSessionViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(session)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['post'])
+    def set_whatsapp_link(self, request, pk=None):
+        session = self.get_object()
+        if session.bike_trip:
+            link = request.data.get('whatsapp_group_link', '').strip()
+            session.bike_trip.whatsapp_group_link = link
+            session.bike_trip.save(update_fields=['whatsapp_group_link'])
+
+            conns = ConnectionRequest.objects.filter(
+                Q(bike_trip=session.bike_trip) | Q(sender=session.bike_trip.user) | Q(receiver=session.bike_trip.user),
+                status=ConnectionRequest.STATUS_ACCEPTED
+            )
+            linked_ids = set(conns.values_list('bike_trip_id', flat=True))
+            if linked_ids:
+                BikeTrip.objects.filter(id__in=linked_ids).update(whatsapp_group_link=link)
+
+        serializer = self.get_serializer(session)
+        return Response(serializer.data)
+
 
 class RouteWeatherViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = RouteWeather.objects.all()
@@ -317,21 +371,46 @@ class RouteWeatherViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class ConnectionRequestViewSet(viewsets.ModelViewSet):
-    queryset = ConnectionRequest.objects.all().order_by('-created_at')
     serializer_class = ConnectionRequestSerializer
     permission_classes = [permissions.AllowAny]
 
+    def get_queryset(self):
+        qs = ConnectionRequest.objects.all().select_related('sender', 'receiver', 'bike_trip').order_by('-created_at')
+        req_type = self.request.query_params.get('type')
+        if self.request.user.is_authenticated:
+            if req_type == 'incoming':
+                return qs.filter(receiver=self.request.user, status=ConnectionRequest.STATUS_PENDING)
+            elif req_type == 'sent':
+                return qs.filter(sender=self.request.user)
+            elif req_type == 'accepted':
+                return qs.filter(
+                    Q(sender=self.request.user) | Q(receiver=self.request.user),
+                    status=ConnectionRequest.STATUS_ACCEPTED
+                )
+            elif req_type == 'my':
+                return qs.filter(Q(sender=self.request.user) | Q(receiver=self.request.user))
+        return qs
+
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
-        serializer.save(sender=user)
+        receiver = serializer.validated_data.get('receiver')
+        bike_trip = serializer.validated_data.get('bike_trip')
+        if not receiver and bike_trip and bike_trip.user:
+            receiver = bike_trip.user
+        serializer.save(sender=user, receiver=receiver)
 
     @action(detail=True, methods=['post'])
     def respond(self, request, pk=None):
         conn = self.get_object()
-        action_val = request.data.get('status')
-        if action_val in ['accepted', 'rejected']:
-            conn.status = action_val
+        action_val = (request.data.get('status') or request.data.get('action') or '').lower()
+        if action_val in ['accept', 'accepted']:
+            conn.status = ConnectionRequest.STATUS_ACCEPTED
             conn.save(update_fields=['status'])
             serializer = self.get_serializer(conn)
             return Response(serializer.data)
-        return Response({'error': 'Invalid status. Use accepted or rejected.'}, status=status.HTTP_400_BAD_REQUEST)
+        elif action_val in ['reject', 'rejected']:
+            conn.status = ConnectionRequest.STATUS_REJECTED
+            conn.save(update_fields=['status'])
+            serializer = self.get_serializer(conn)
+            return Response(serializer.data)
+        return Response({'error': 'Invalid status. Use accept or reject.'}, status=status.HTTP_400_BAD_REQUEST)
