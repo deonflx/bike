@@ -474,7 +474,7 @@ function LiveTracking({ viewOnly = false }) {
           setCurrentCoords([lat, lng]);
           setAccuracy(Math.round(acc));
 
-          if (sessionId) {
+          if (sessionId && session?.is_owner) {
             api.patch(`/sessions/${sessionId}/`, { lat, lng })
               .then((res) => {
                 setSession((prev) => ({ ...prev, ...res.data }));
@@ -538,6 +538,10 @@ function LiveTracking({ viewOnly = false }) {
 
   // 8. End Trip Action
   const handleEndTrip = () => {
+    if (!session?.is_owner) {
+      alert('Only the session owner can end or complete this expedition.');
+      return;
+    }
     if (!window.confirm('Conclude active live expedition?')) return;
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
@@ -549,7 +553,8 @@ function LiveTracking({ viewOnly = false }) {
       })
       .catch((err) => {
         console.error(err);
-        alert('Failed to end session.');
+        const errMsg = err.response?.data?.error || err.response?.data?.detail || 'Failed to end session.';
+        alert(errMsg);
       });
   };
 
@@ -675,7 +680,7 @@ function LiveTracking({ viewOnly = false }) {
             >
               {startingSession ? 'Launching…' : '▶ Start Trip'}
             </button>
-          ) : (
+          ) : session?.is_owner ? (
             <>
               <button
                 onClick={toggleTracking}
@@ -689,6 +694,22 @@ function LiveTracking({ viewOnly = false }) {
                 </button>
               )}
             </>
+          ) : (
+            <span
+              className="spec-tag"
+              style={{
+                color: 'var(--jade)',
+                borderColor: 'rgba(52, 211, 153, 0.3)',
+                padding: '4px 10px',
+                fontSize: '0.72rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              <span className="live-dot" style={{ width: '6px', height: '6px' }}></span>
+              Spectator Mode
+            </span>
           )}
         </div>
       </div>

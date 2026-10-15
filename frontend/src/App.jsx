@@ -7,6 +7,7 @@ import {
   SignUpButton,
   UserButton,
   useAuth,
+  useUser,
 } from '@clerk/clerk-react';
 import './App.css';
 import api, { setAuthTokenGetter } from './api';
@@ -50,6 +51,7 @@ function AuthenticatedHeader({ onNewExpedition }) {
 // ─── 1. Home / Expedition Logbook View (matching customer_list.html) ──────────
 function TripList({ isClerkConfigured }) {
   const navigate = useNavigate();
+  const { user } = useUser();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -81,16 +83,17 @@ function TripList({ isClerkConfigured }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (submitting) return;
     setSubmitting(true);
 
     api.post('/trips/', {
-      bikename: bikename,
-      starting_name: startingName,
-      destination_name: destinationName,
-      whatsapp_group_link: whatsappLink,
+      bikename: bikename.trim(),
+      starting_name: startingName.trim(),
+      destination_name: destinationName.trim(),
+      whatsapp_group_link: whatsappLink.trim(),
     })
       .then((res) => {
-        setTrips([res.data, ...trips]);
+        setTrips((prev) => [res.data, ...prev]);
         setBikename('');
         setStartingName('');
         setDestinationName('');
@@ -100,9 +103,32 @@ function TripList({ isClerkConfigured }) {
       })
       .catch((err) => {
         console.error(err);
-        alert('Failed to register expedition.');
+        let errorMsg = 'Failed to register expedition.';
+        if (err.response?.data) {
+          if (typeof err.response.data === 'string') {
+            errorMsg = err.response.data;
+          } else if (err.response.data.detail) {
+            errorMsg = err.response.data.detail;
+          } else if (Array.isArray(err.response.data)) {
+            errorMsg = err.response.data[0];
+          } else if (typeof err.response.data === 'object') {
+            const firstKey = Object.keys(err.response.data)[0];
+            const val = err.response.data[firstKey];
+            errorMsg = Array.isArray(val) ? val[0] : String(val);
+          }
+        }
+        alert(errorMsg);
         setSubmitting(false);
       });
+  };
+
+  const canDeleteTrip = (trip) => {
+    if (trip.is_owner) return true;
+    if (!user) return false;
+    return Boolean(
+      trip.owner_username &&
+      (trip.owner_username === user.id || trip.owner_username === user.username)
+    );
   };
 
   const handleDelete = (e, tripId) => {
@@ -115,7 +141,8 @@ function TripList({ isClerkConfigured }) {
       })
       .catch((err) => {
         console.error(err);
-        alert('Failed to delete trip.');
+        const errMsg = err.response?.data?.detail || err.response?.data?.error || 'Failed to delete trip. You may only delete your own expeditions.';
+        alert(errMsg);
       });
   };
 
@@ -315,13 +342,16 @@ function TripList({ isClerkConfigured }) {
                           >
                             View →
                           </Link>
-                          <button
-                            className="btn btn-sm btn-danger"
-                            style={{ padding: '2px 8px', fontSize: '0.7rem' }}
-                            onClick={(e) => handleDelete(e, trip.id)}
-                          >
-                            ✕
-                          </button>
+                          {canDeleteTrip(trip) && (
+                            <button
+                              className="btn btn-sm btn-danger"
+                              style={{ padding: '2px 8px', fontSize: '0.7rem' }}
+                              onClick={(e) => handleDelete(e, trip.id)}
+                              title="Delete your expedition"
+                            >
+                              ✕
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

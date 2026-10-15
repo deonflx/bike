@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useUser } from '@clerk/clerk-react';
 import './App.css';
 import api from './api';
 
 function TripDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useUser();
 
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -92,7 +94,16 @@ function TripDetail() {
       });
   };
 
+  const isOwner = Boolean(
+    trip?.is_owner ||
+    (user && trip?.owner_username && (trip.owner_username === user.id || trip.owner_username === user.username))
+  );
+
   const handleStartTrip = () => {
+    if (!isOwner) {
+      alert('Only the creator of this expedition can start a live tracking session.');
+      return;
+    }
     setStartingSession(true);
     api.post(`/trips/${id}/start_session/`)
       .then((res) => {
@@ -100,12 +111,17 @@ function TripDetail() {
       })
       .catch((err) => {
         console.error(err);
-        alert('Could not start live session.');
+        const errMsg = err.response?.data?.error || err.response?.data?.detail || 'Could not start live session.';
+        alert(errMsg);
         setStartingSession(false);
       });
   };
 
   const handleDelete = () => {
+    if (!isOwner) {
+      alert('You can only delete your own expeditions.');
+      return;
+    }
     if (!window.confirm(`Delete expedition for ${trip.bikename}?`)) return;
     api.delete(`/trips/${id}/`)
       .then(() => {
@@ -113,7 +129,8 @@ function TripDetail() {
       })
       .catch((err) => {
         console.error(err);
-        alert('Failed to delete trip.');
+        const errMsg = err.response?.data?.detail || err.response?.data?.error || 'Failed to delete trip. You may only delete your own expeditions.';
+        alert(errMsg);
       });
   };
 
@@ -189,9 +206,11 @@ function TripDetail() {
           <span style={{ color: 'var(--text)' }}>{trip.bikename}</span>
         </div>
         <div className="topbar-right">
-          <button className="btn btn-sm btn-danger" onClick={handleDelete}>
-            Delete
-          </button>
+          {isOwner && (
+            <button className="btn btn-sm btn-danger" onClick={handleDelete} title="Delete your expedition">
+              Delete
+            </button>
+          )}
         </div>
       </nav>
 
@@ -230,13 +249,15 @@ function TripDetail() {
 
           {/* ACTION BUTTONS (Exact HTML classes: btn-jade, btn-ghost) */}
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <button
-              onClick={handleStartTrip}
-              disabled={startingSession}
-              className="btn btn-sm btn-jade"
-            >
-              {startingSession ? 'Launching Radar…' : '▶ Start Trip'}
-            </button>
+            {isOwner && (
+              <button
+                onClick={handleStartTrip}
+                disabled={startingSession}
+                className="btn btn-sm btn-jade"
+              >
+                {startingSession ? 'Launching Radar…' : '▶ Start Trip'}
+              </button>
+            )}
 
             <Link
               to={`/trips/${id}/route`}
@@ -265,16 +286,18 @@ function TripDetail() {
                 >
                   <span>💬</span> Convoy WhatsApp
                 </a>
-                <button
-                  onClick={handleSetWhatsAppLink}
-                  className="btn btn-sm btn-ghost"
-                  style={{ fontSize: '0.72rem', padding: '3px 6px', color: 'var(--text-2)' }}
-                  title="Update WhatsApp Group Link for all members"
-                >
-                  ✏️
-                </button>
+                {isOwner && (
+                  <button
+                    onClick={handleSetWhatsAppLink}
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '0.72rem', padding: '3px 6px', color: 'var(--text-2)' }}
+                    title="Update WhatsApp Group Link for all members"
+                  >
+                    ✏️
+                  </button>
+                )}
               </div>
-            ) : (
+            ) : isOwner ? (
               <button
                 onClick={handleSetWhatsAppLink}
                 className="btn btn-sm btn-ghost"
@@ -283,7 +306,7 @@ function TripDetail() {
               >
                 <span>💬</span> + WhatsApp Group
               </button>
-            )}
+            ) : null}
 
             <button
               onClick={() => {

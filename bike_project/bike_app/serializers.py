@@ -1,7 +1,6 @@
 from rest_framework import serializers
 from django.contrib.gis.geos import Point
 from bike_app.models import BikeTrip, TripSession, RouteWeather, ConnectionRequest
-from bike_app.redis_client import get_bike_specs
 
 
 # ─── 1. Route Weather Serializer ──────────────────────────────────────────────
@@ -60,6 +59,7 @@ class TripSessionSerializer(serializers.ModelSerializer):
     bikename = serializers.ReadOnlyField(source='bike_trip.bikename')
     starting_name = serializers.ReadOnlyField(source='bike_trip.starting_name')
     destination_name = serializers.ReadOnlyField(source='bike_trip.destination_name')
+    is_owner = serializers.SerializerMethodField()
     start_coords = serializers.SerializerMethodField()
     dest_coords = serializers.SerializerMethodField()
     route_coords = serializers.SerializerMethodField()
@@ -79,6 +79,7 @@ class TripSessionSerializer(serializers.ModelSerializer):
             'destination_name',
             'status',
             'is_active',
+            'is_owner',
             'current_lat',
             'current_lng',
             'start_coords',
@@ -91,6 +92,13 @@ class TripSessionSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'started_at', 'updated_at']
+
+    def get_is_owner(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        trip_user_id = obj.bike_trip.user_id if obj.bike_trip else None
+        return bool(trip_user_id and trip_user_id == request.user.id)
 
     def get_start_coords(self, obj):
         if obj.bike_trip and obj.bike_trip.starting_point:
@@ -270,6 +278,8 @@ class ConnectionRequestSerializer(serializers.ModelSerializer):
     starting_name = serializers.ReadOnlyField(source='bike_trip.starting_name')
     destination_name = serializers.ReadOnlyField(source='bike_trip.destination_name')
     whatsapp_group_link = serializers.ReadOnlyField(source='bike_trip.whatsapp_group_link')
+    is_sender = serializers.SerializerMethodField()
+    is_receiver = serializers.SerializerMethodField()
 
     class Meta:
         model = ConnectionRequest
@@ -285,10 +295,24 @@ class ConnectionRequestSerializer(serializers.ModelSerializer):
             'destination_name',
             'whatsapp_group_link',
             'status',
+            'is_sender',
+            'is_receiver',
             'created_at',
             'updated_at',
         ]
         read_only_fields = ['id', 'sender', 'created_at', 'updated_at']
+
+    def get_is_sender(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        return bool(obj.sender_id and obj.sender_id == request.user.id)
+
+    def get_is_receiver(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        return bool(obj.receiver_id and obj.receiver_id == request.user.id)
 
 
 # ─── 4. Main Bike Trip Serializer ─────────────────────────────────────────────
@@ -299,6 +323,7 @@ class BikeTripSerializer(serializers.ModelSerializer):
     - Pulls bike specifications (capacity, mileage, fuel cost) from Redis.
     """
     owner_username = serializers.ReadOnlyField(source='user.username')
+    is_owner = serializers.SerializerMethodField()
     starting_coords = serializers.SerializerMethodField()
     destination_coords = serializers.SerializerMethodField()
     specs = serializers.SerializerMethodField()
@@ -309,6 +334,7 @@ class BikeTripSerializer(serializers.ModelSerializer):
             'id',
             'user',
             'owner_username',
+            'is_owner',
             'bikename',
             'capacity',
             'mileage',
@@ -322,6 +348,12 @@ class BikeTripSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'user', 'created_at']
 
+    def get_is_owner(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        return bool(obj.user_id and obj.user_id == request.user.id)
+
     def get_starting_coords(self, obj):
         if obj.starting_point:
             return {'lat': obj.starting_point.y, 'lng': obj.starting_point.x}
@@ -333,15 +365,8 @@ class BikeTripSerializer(serializers.ModelSerializer):
         return None
 
     def get_specs(self, obj):
-        """Returns bike specs from Postgres model (with Redis fallback if needed)"""
-        capacity = obj.capacity
-        mileage = obj.mileage
-        if capacity is None or mileage is None:
-            r_specs = get_bike_specs(obj.id)
-            capacity = capacity if capacity is not None else r_specs.get('capacity')
-            mileage = mileage if mileage is not None else r_specs.get('mileage')
         return {
             'bikename': obj.bikename,
-            'capacity': capacity,
-            'mileage': mileage,
-        }
+            'capacity': obj.capacity,
+            'mileage': obj.mileage,
+        }

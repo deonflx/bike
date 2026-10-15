@@ -1,6 +1,9 @@
 import json
 import time
-from rest_framework import viewsets, permissions, status
+import datetime
+from django.utils import timezone
+from django.db import transaction
+from rest_framework import viewsets, permissions, status, exceptions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
@@ -17,8 +20,12 @@ from .serializers import (
     RouteWeatherSerializer,
     ConnectionRequestSerializer
 )
+from .permissions import (
+    IsOwnerOrReadOnly,
+    IsSessionOwnerOrReadOnly,
+    IsConnectionParticipant,
+)
 from .redis_client import (
-    save_bike_specs, get_bike_specs,
     save_fuel_stops, get_fuel_stops,
     save_ai_summary, get_ai_summary,
     save_ai_weather, get_ai_weather,
@@ -43,7 +50,7 @@ User = get_user_model()
 class BikeTripViewSet(viewsets.ModelViewSet):
     """
     Handles all trip operations:
-    - CRUD on BikeTrip
+    - CRUD on BikeTrip (Strictly owner-only for write/delete/replace)
     - Auto-geocoding + Gemini bike spec lookup + Redis caching on create
     - AI trip summary & weather generation
     - Co-traveler & route-matching discovery
@@ -51,12 +58,30 @@ class BikeTripViewSet(viewsets.ModelViewSet):
     """
     queryset = BikeTrip.objects.all().order_by('-created_at')
     serializer_class = BikeTripSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsOwnerOrReadOnly]
 
     def perform_create(self, serializer):
+        if not self.request.user or not self.request.user.is_authenticated:
+            raise exceptions.NotAuthenticated("You must be signed in to log a new expedition.")
+
         bikename = self.request.data.get('bikename', '').strip()
         starting_name = self.request.data.get('starting_name', '').strip()
         destination_name = self.request.data.get('destination_name', '').strip()
+
+        # Deduplication check: prevent duplicate registration if submitted within the last 60 seconds
+        recent_cutoff = timezone.now() - datetime.timedelta(seconds=60)
+        duplicate = BikeTrip.objects.filter(
+            user=self.request.user,
+            bikename__iexact=bikename,
+            starting_name__iexact=starting_name,
+            destination_name__iexact=destination_name,
+            created_at__gte=recent_cutoff
+        ).first()
+
+        if duplicate:
+            raise exceptions.ValidationError(
+                f"An identical expedition for '{bikename}' was just logged a moment ago. Check your logbook!"
+            )
 
         # 1. Geocode locations into PostGIS Points (Nominatim with slight delay)
         starting_point = _geocode(starting_name) if starting_name else None
@@ -68,40 +93,48 @@ class BikeTripViewSet(viewsets.ModelViewSet):
         capacity = float(specs.get('capacity', 15.0))
         mileage = float(specs.get('mileage', 35.0))
 
-        # 3. Save instance with spatial points & specs
-        user = self.request.user if self.request.user.is_authenticated else None
-        trip = serializer.save(
-            user=user,
-            capacity=capacity,
-            mileage=mileage,
-            starting_point=starting_point,
-            destination_point=destination_point
-        )
+        # 3. Save instance with spatial points & specs inside an atomic transaction
+        with transaction.atomic():
+            trip = serializer.save(
+                user=self.request.user,
+                capacity=capacity,
+                mileage=mileage,
+                starting_point=starting_point,
+                destination_point=destination_point
+            )
 
-        # 4. Cache specs in Redis
-        save_bike_specs(trip.id, {
-            'bikename': bikename,
-            'capacity': capacity,
-            'mileage': mileage,
-        })
+            # 4. Pre-calculate refuel point, nearby petrol pumps, & route path geometry
+            if starting_point and destination_point:
+                try:
+                    fuel_stop_data = _compute_refuel_point_and_pumps(
+                        starting_point, destination_point, capacity, mileage
+                    )
+                    save_fuel_stops(trip.id, fuel_stop_data)
+                    coords = fuel_stop_data.get('coords')
+                    if coords and len(coords) >= 2:
+                        trip.route_path = LineString(coords, srid=4326)
+                        trip.save(update_fields=['route_path'])
+                except Exception as e:
+                    print(f"[API] Fuel stop computation failed for Trip #{trip.id}: {e}")
 
-        # 5. Pre-calculate refuel point, nearby petrol pumps, & route path geometry
-        if starting_point and destination_point:
-            try:
-                fuel_stop_data = _compute_refuel_point_and_pumps(
-                    starting_point, destination_point, capacity, mileage
-                )
-                save_fuel_stops(trip.id, fuel_stop_data)
-                coords = fuel_stop_data.get('coords')
-                if coords and len(coords) >= 2:
-                    trip.route_path = LineString(coords, srid=4326)
-                    trip.save(update_fields=['route_path'])
-            except Exception as e:
-                print(f"[API] Fuel stop computation failed for Trip #{trip.id}: {e}")
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        if instance.user and instance.user != self.request.user and not self.request.user.is_staff:
+            raise exceptions.PermissionDenied("You do not have permission to modify this expedition.")
+        serializer.save()
 
     def perform_destroy(self, instance):
+        if instance.user and instance.user != self.request.user and not self.request.user.is_staff:
+            raise exceptions.PermissionDenied("You do not have permission to delete this expedition.")
         delete_trip_cache(instance.pk)
         instance.delete()
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def my_expeditions(self, request):
+        """Retrieve only expeditions owned by the authenticated user"""
+        my_trips = self.get_queryset().filter(user=request.user)
+        serializer = self.get_serializer(my_trips, many=True)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['get'])
     def fuel_stops(self, request, pk=None):
@@ -112,23 +145,35 @@ class BikeTripViewSet(viewsets.ModelViewSet):
             return Response({'needed': False, 'stations': []})
         return Response(data)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def start_session(self, request, pk=None):
-        """Start or resume a live tracking session for this trip"""
+        """Start or resume a live tracking session for this trip (owner only)"""
         trip = self.get_object()
+        if trip.user and trip.user != request.user and not request.user.is_staff:
+            return Response(
+                {'error': 'You can only start a live tracking session for your own expedition.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         session = TripSession.objects.filter(bike_trip=trip, status=TripSession.STATUS_ACTIVE).first()
         if not session:
             session = TripSession.objects.create(
                 bike_trip=trip,
                 current_location=trip.starting_point
             )
-        serializer = TripSessionSerializer(session)
+        serializer = TripSessionSerializer(session, context={'request': request})
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def set_whatsapp_link(self, request, pk=None):
-        """Set or update the WhatsApp group link for this convoy/trip"""
+        """Set or update the WhatsApp group link for this convoy/trip (owner only)"""
         trip = self.get_object()
+        if trip.user and trip.user != request.user and not request.user.is_staff:
+            return Response(
+                {'error': 'Only the expedition owner can set or update the WhatsApp group link.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         link = request.data.get('whatsapp_group_link', '').strip()
         trip.whatsapp_group_link = link
         trip.save(update_fields=['whatsapp_group_link'])
@@ -328,25 +373,60 @@ Provide a detailed advisory covering:
 class TripSessionViewSet(viewsets.ModelViewSet):
     """
     Handles live tracking sessions:
-    - GET /api/sessions/<id>/
-    - PATCH /api/sessions/<id>/ with {"lat": ..., "lng": ...}
-    - POST /api/sessions/<id>/end_session/
+    - GET /api/sessions/<id>/ (Public / spectator telemetry read)
+    - PATCH /api/sessions/<id>/ with {"lat": ..., "lng": ...} (Strictly owner only)
+    - POST /api/sessions/<id>/end_session/ (Owner only)
+    - DELETE /api/sessions/<id>/ (Owner only)
     """
     queryset = TripSession.objects.all()
     serializer_class = TripSessionSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsSessionOwnerOrReadOnly]
 
-    @action(detail=True, methods=['post'])
+    def perform_create(self, serializer):
+        if not self.request.user or not self.request.user.is_authenticated:
+            raise exceptions.NotAuthenticated("You must be logged in to create a tracking session.")
+        bike_trip = serializer.validated_data.get('bike_trip')
+        if bike_trip and bike_trip.user and bike_trip.user != self.request.user and not self.request.user.is_staff:
+            raise exceptions.PermissionDenied("You can only create sessions for your own trips.")
+        serializer.save()
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        trip_user = instance.bike_trip.user if instance.bike_trip else None
+        if trip_user and trip_user != self.request.user and not self.request.user.is_staff:
+            raise exceptions.PermissionDenied("You can only update GPS telemetry for your own active session.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        trip_user = instance.bike_trip.user if instance.bike_trip else None
+        if trip_user and trip_user != self.request.user and not self.request.user.is_staff:
+            raise exceptions.PermissionDenied("You can only delete your own session.")
+        instance.delete()
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def end_session(self, request, pk=None):
         session = self.get_object()
+        trip_user = session.bike_trip.user if session.bike_trip else None
+        if trip_user and trip_user != request.user and not request.user.is_staff:
+            return Response(
+                {'error': 'You can only complete or end your own live session.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         session.status = TripSession.STATUS_COMPLETED
         session.save(update_fields=['status'])
         serializer = self.get_serializer(session)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def set_whatsapp_link(self, request, pk=None):
         session = self.get_object()
+        trip_user = session.bike_trip.user if session.bike_trip else None
+        if trip_user and trip_user != request.user and not request.user.is_staff:
+            return Response(
+                {'error': 'You can only set the WhatsApp link for your own session.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         if session.bike_trip:
             link = request.data.get('whatsapp_group_link', '').strip()
             session.bike_trip.whatsapp_group_link = link
@@ -365,43 +445,81 @@ class TripSessionViewSet(viewsets.ModelViewSet):
 
 
 class RouteWeatherViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only weather point observations.
+    """
     queryset = RouteWeather.objects.all()
     serializer_class = RouteWeatherSerializer
     permission_classes = [permissions.AllowAny]
 
 
 class ConnectionRequestViewSet(viewsets.ModelViewSet):
+    """
+    Handles ride invitations and convoy matching:
+    - Only authenticated users can access connection requests.
+    - Users only ever see requests where they are either sender or receiver.
+    - Only the receiver can accept or reject an invitation.
+    - Only the sender or receiver can delete/cancel a request.
+    """
     serializer_class = ConnectionRequestSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated, IsConnectionParticipant]
 
     def get_queryset(self):
-        qs = ConnectionRequest.objects.all().select_related('sender', 'receiver', 'bike_trip').order_by('-created_at')
+        if not self.request.user or not self.request.user.is_authenticated:
+            return ConnectionRequest.objects.none()
+
+        qs = ConnectionRequest.objects.filter(
+            Q(sender=self.request.user) | Q(receiver=self.request.user)
+        ).select_related('sender', 'receiver', 'bike_trip').order_by('-created_at')
+
         req_type = self.request.query_params.get('type')
-        if self.request.user.is_authenticated:
-            if req_type == 'incoming':
-                return qs.filter(receiver=self.request.user, status=ConnectionRequest.STATUS_PENDING)
-            elif req_type == 'sent':
-                return qs.filter(sender=self.request.user)
-            elif req_type == 'accepted':
-                return qs.filter(
-                    Q(sender=self.request.user) | Q(receiver=self.request.user),
-                    status=ConnectionRequest.STATUS_ACCEPTED
-                )
-            elif req_type == 'my':
-                return qs.filter(Q(sender=self.request.user) | Q(receiver=self.request.user))
+        if req_type == 'incoming':
+            return qs.filter(receiver=self.request.user, status=ConnectionRequest.STATUS_PENDING)
+        elif req_type == 'sent':
+            return qs.filter(sender=self.request.user)
+        elif req_type == 'accepted':
+            return qs.filter(status=ConnectionRequest.STATUS_ACCEPTED)
         return qs
 
     def perform_create(self, serializer):
-        user = self.request.user if self.request.user.is_authenticated else None
+        if not self.request.user or not self.request.user.is_authenticated:
+            raise exceptions.NotAuthenticated("You must be signed in to send ride invitations.")
+
         receiver = serializer.validated_data.get('receiver')
         bike_trip = serializer.validated_data.get('bike_trip')
+
         if not receiver and bike_trip and bike_trip.user:
             receiver = bike_trip.user
-        serializer.save(sender=user, receiver=receiver)
 
-    @action(detail=True, methods=['post'])
+        if not receiver:
+            raise exceptions.ValidationError({'receiver': 'A valid recipient rider is required.'})
+
+        if receiver == self.request.user:
+            raise exceptions.ValidationError({'receiver': 'You cannot send a ride invitation to yourself.'})
+
+        serializer.save(sender=self.request.user, receiver=receiver)
+
+    def perform_update(self, serializer):
+        conn = self.get_object()
+        if conn.sender != self.request.user and conn.receiver != self.request.user and not self.request.user.is_staff:
+            raise exceptions.PermissionDenied("You do not have permission to modify this connection request.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.sender != self.request.user and instance.receiver != self.request.user and not self.request.user.is_staff:
+            raise exceptions.PermissionDenied("You do not have permission to delete this invitation.")
+        instance.delete()
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def respond(self, request, pk=None):
         conn = self.get_object()
+        # Only the recipient can accept or reject an invitation!
+        if conn.receiver != request.user and not request.user.is_staff:
+            return Response(
+                {'error': 'Only the recipient of this invitation can accept or decline it.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         action_val = (request.data.get('status') or request.data.get('action') or '').lower()
         if action_val in ['accept', 'accepted']:
             conn.status = ConnectionRequest.STATUS_ACCEPTED

@@ -66,11 +66,10 @@ function Invitations({ isClerkConfigured }) {
       });
   };
 
-  // Group connections into categories
-  // Note: incoming are requests where status === 'pending'
-  const incoming = connections.filter((c) => c.status === 'pending');
+  // Group connections into categories using verified auth ownership
+  const incoming = connections.filter((c) => c.status === 'pending' && (c.is_receiver || !c.is_sender));
   const accepted = connections.filter((c) => c.status === 'accepted');
-  const sent = connections.filter((c) => c.status !== 'accepted' && c.status !== 'pending' || c.sender_username);
+  const sent = connections.filter((c) => c.is_sender);
 
   return (
     <div className="invitations-page">
