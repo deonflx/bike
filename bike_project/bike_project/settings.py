@@ -13,11 +13,11 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
-
-load_dotenv(override=True)
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / '.env', override=True)
 
 # ===========================================================
 # GeoDjango / GDAL configuration for Windows (OSGeo4W)
@@ -40,7 +40,9 @@ if os.name == 'nt':
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-q*4rzi)x17^+wtk!o(dsz0p!u6v7u*feyy!1orrurar$rlr3bn')
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    raise ImproperlyConfigured("The SECRET_KEY environment variable must be set.")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 'yes')
@@ -63,29 +65,22 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django.contrib.sites',
     'django.contrib.gis',
     'rest_framework',
-    
-    # Allauth apps
-    'allauth',
-    'allauth.account',
-    'allauth.socialaccount',
-    'allauth.socialaccount.providers.google', # Optional: for Google login
-
+    'corsheaders',
     'bike_app',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',          # Serve static files in production
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'allauth.account.middleware.AccountMiddleware',
 ]
 
 ROOT_URLCONF = 'bike_project.urls'
@@ -93,7 +88,7 @@ ROOT_URLCONF = 'bike_project.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'bike_app' / 'templates'],
+        'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -111,11 +106,16 @@ WSGI_APPLICATION = 'bike_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DB_NAME     = os.environ.get('DB_NAME', 'postgres')
-DB_USER     = os.environ.get('DB_USER', 'postgres.ktwhbrsgumuxypxtcwwa')
-DB_PASSWORD = os.environ.get('DB_PASSWORD', 'deonnjr@200')
-DB_HOST     = os.environ.get('DB_HOST', 'aws-0-ap-northeast-2.pooler.supabase.com')
+DB_NAME     = os.environ.get('DB_NAME')
+DB_USER     = os.environ.get('DB_USER')
+DB_PASSWORD = os.environ.get('DB_PASSWORD')
+DB_HOST     = os.environ.get('DB_HOST')
 DB_PORT     = os.environ.get('DB_PORT', '5432')
+
+if not all([DB_NAME, DB_USER, DB_PASSWORD, DB_HOST]):
+    raise ImproperlyConfigured(
+        "Database configuration missing: DB_NAME, DB_USER, DB_PASSWORD, and DB_HOST must be set in the environment."
+    )
 
 DATABASES = {
     'default': {
@@ -191,25 +191,24 @@ if not DEBUG:
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# django-allauth settings
-SITE_ID = 1
-AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',
-    'allauth.account.auth_backends.AuthenticationBackend',
-]
-
-ACCOUNT_EMAIL_VERIFICATION = "none"
-ACCOUNT_SIGNUP_FIELDS = ['username*', 'password1*', 'password2*']
-LOGIN_URL = 'account_login'
-LOGIN_REDIRECT_URL = 'customer_list'
-ACCOUNT_LOGOUT_REDIRECT_URL = 'account_login'
-
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'bike_app.authentication.ClerkAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ],
 }
+
+# Clerk Authentication configuration
+CLERK_SECRET_KEY = os.environ.get('CLERK_SECRET_KEY', '')
+CLERK_PUBLISHABLE_KEY = os.environ.get('CLERK_PUBLISHABLE_KEY', '')
+CLERK_JWKS_URL = os.environ.get('CLERK_JWKS_URL', '')
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+]

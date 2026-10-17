@@ -10,6 +10,8 @@ class BikeTrip(models.Model):
     """
     user                 = models.ForeignKey(User, on_delete=models.CASCADE, related_name='trips', null=True, blank=True)
     bikename             = models.CharField(max_length=100)
+    capacity             = models.FloatField(null=True, blank=True, help_text="Fuel tank capacity in liters")
+    mileage              = models.FloatField(null=True, blank=True, help_text="Average mileage in km/l")
 
     # Human-readable location labels
     starting_name        = models.CharField(max_length=200, default='')
@@ -21,6 +23,9 @@ class BikeTrip(models.Model):
 
     # Route path geometry for route-based matching & corridor queries
     route_path           = gis_models.LineStringField(srid=4326, null=True, blank=True)
+
+    # Optional WhatsApp group chat invite link for the convoy
+    whatsapp_group_link  = models.URLField(max_length=300, blank=True, null=True, help_text="WhatsApp group chat invite link for the convoy")
 
     created_at           = models.DateTimeField(auto_now_add=True)
 

@@ -1,39 +1,19 @@
 from django.urls import path, include
-# pyrefly: ignore [missing-import]
-from . import views
+from rest_framework.routers import DefaultRouter
+from bike_app.api_views import (
+    BikeTripViewSet,
+    TripSessionViewSet,
+    RouteWeatherViewSet,
+    ConnectionRequestViewSet,
+)
+
+router = DefaultRouter()
+router.register(r'trips', BikeTripViewSet, basename='trip')
+router.register(r'sessions', TripSessionViewSet, basename='session')
+router.register(r'weather', RouteWeatherViewSet, basename='weather')
+router.register(r'connections', ConnectionRequestViewSet, basename='connection')
 
 urlpatterns = [
-    # Allauth URLs
-    path('accounts/', include('allauth.urls')),
-
-    # Home / list
-    path('', views.customer_list, name='customer_list'),
-
-    # Form
-    path('new-trip/', views.bike_form, name='bike_form'),
-    path('submit/', views.bike_submit, name='bike_submit'),
-    path('success/', views.bike_success, name='bike_success'),
-
-    # Customer detail
-    path('customers/<int:pk>/', views.customer_detail, name='customer_detail'),
-    path('customers/<int:pk>/summary/', views.generate_customer_summary, name='customer_summary'),
-    path('customers/<int:pk>/route/', views.view_route, name='view_route'),
-    path('customers/<int:pk>/delete/', views.delete_trip, name='delete_trip'),
-
-    # Live trip sessions
-    path('customers/<int:pk>/start/', views.start_trip, name='start_trip'),
-    path('session/<int:session_pk>/', views.trip_map, name='trip_map'),
-    path('session/<int:session_pk>/update/', views.update_location, name='update_location'),
-    path('session/<int:session_pk>/data/', views.session_data, name='session_data'),
-    path('session/<int:session_pk>/end/', views.end_trip, name='end_trip'),
-    
-    # Connection requests
-    path('connect/send/', views.send_connection_request, name='send_connection_request'),
-    path('connect/respond/<int:req_id>/', views.respond_connection_request, name='respond_connection_request'),
-    path('invitations/', views.my_invitations, name='my_invitations'),
-    # AI Advisor
-    path('customers/<int:pk>/ai-tips/', views.generate_ai_tips, name='generate_ai_tips'),
-
-    # Fuel Stops (pre-cached in Redis)
-    path('customers/<int:pk>/fuel-stops/', views.get_trip_fuel_stops, name='get_trip_fuel_stops'),
+    # REST API endpoints
+    path('api/', include(router.urls)),
 ]
